@@ -1,0 +1,400 @@
+import { useMemo, useState } from 'react'
+import type { HrStore } from '../lib/store'
+import type { TimeEntryType, User } from '../types'
+import { formatTime, localDayKey, timeEntryLabels, weekDayShort, workedHours } from '../lib/format'
+import { weekDayLabels } from '../types'
+import { EmptyState, SectionCard, StatCard, StatusBadge } from '../components/ui'
+import { formatGeo, geoMapLink, useGeoConsent } from '../lib/geo'
+
+const entryOrder: TimeEntryType[] = ['entrada', 'saida_almoco', 'volta_almoco', 'saida']
+
+function dayKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** Batidas do dia ordenadas e completadas até 4 posições (null = faltante). */
+function dayPunches(entries: { type: TimeEntryType; occurredAt: string }[]): (string | null)[] {
+  const sorted = [...entries].sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime())
+  const result: (string | null)[] = [null, null, null, null]
+  for (let i = 0; i < Math.min(4, sorted.length); i++) {
+    result[i] = formatTime(sorted[i]!.occurredAt)
+  }
+  return result
+}
+
+function missingPunches(entries: { type: TimeEntryType; occurredAt: string }[]): number {
+  return 4 - Math.min(4, entries.length)
+}
+
+export default function Timesheet({ user, store }: { user: User; store: HrStore }) {
+  const { data } = store
+  const [now, setNow] = useState(() => new Date())
+  const [range, setRange] = useState<7 | 15 | 30>(7)
+  const [editingDay, setEditingDay] = useState<string | null>(null)
+  const [geoBusy, setGeoBusy] = useState(false)
+  const today = dayKey(now)
+
+  const geo = useGeoConsent(user.id)
+
+  const isManager = user.role === 'super_admin' || user.role === 'gestor'
+  const teamIds = useMemo(
+    () =>
+      isManager
+        ? data.users
+            .filter((u) =>
+              user.role === 'super_admin'
+                ? u.companyId !== null && u.id !== user.id
+                : u.companyId === user.companyId && u.role === 'colaborador',
+            )
+            .map((u) => u.id)
+        : [],
+    [data.users, user, isManager],
+  )
+
+  const todayEntries = data.timeEntries.filter(
+    (t) => t.employeeId === user.id && localDayKey(t.occurredAt) === today,
+  )
+  const nextType: TimeEntryType = entryOrder[todayEntries.length % entryOrder.length] ?? 'entrada'
+  const hoursToday = workedHours(todayEntries)
+
+  // Espelho de ponto: últimos N dias com consistência de 4 batidas
+  const mirror = useMemo(() => {
+    const days: {
+      key: string
+      label: string
+      hours: number
+      punches: (string | null)[]
+      missing: number
+      isWorkday: boolean
+    }[] = []
+    for (let i = 0; i < range; i++) {
+      const d = new Date(now)
+      d.setDate(d.getDate() - i)
+      const key = dayKey(d)
+      const entries = data.timeEntries.filter((t) => t.employeeId === user.id && localDayKey(t.occurredAt) === key)
+      const weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][d.getDay()] as keyof typeof weekDayLabels
+      days.push({
+        key,
+        label: `${weekDayShort[weekday]} ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`,
+        hours: workedHours(entries),
+        punches: dayPunches(entries),
+        missing: missingPunches(entries),
+        isWorkday: !!user.weeklySchedule[weekday],
+      })
+    }
+    return days
+  }, [data.timeEntries, user, now, range])
+
+  const inconsistentDays = mirror.filter((d) => d.missing > 0 && (d.isWorkday || d.hours > 0)).length
+  const periodTotal = mirror.reduce((acc, d) => acc + d.hours, 0)
+
+  // visão da equipe (hoje)
+  const teamToday = useMemo(() => {
+    if (!isManager) return []
+    return data.users
+      .filter((u) => teamIds.includes(u.id) && u.id !== user.id)
+      .map((u) => ({
+        person: u,
+        entries: data.timeEntries
+          .filter((t) => t.employeeId === u.id && localDayKey(t.occurredAt) === today)
+          .sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime()),
+      }))
+  }, [data.users, data.timeEntries, teamIds, isManager, user.id, today])
+
+  async function punch() {
+    setGeoBusy(true)
+    try {
+      let loc = geo.status === 'granted' ? await geo.capture() : await geo.requestConsent()
+      if (geo.status !== 'granted' && !loc) {
+        // consentimento negado: não registra
+        setNow(new Date())
+        return
+      }
+      store.punchNext(user.id, new Date(), loc ?? undefined)
+      setNow(new Date())
+    } finally {
+      setGeoBusy(false)
+    }
+  }
+
+  const canPunch =
+    (nextType === 'entrada' && todayEntries.length === 0) ||
+    (todayEntries.length > 0 && todayEntries[todayEntries.length - 1]!.type !== 'saida')
+
+  const editingEntries = editingDay ? data.timeEntries.filter((t) => t.employeeId === user.id && localDayKey(t.occurredAt) === editingDay) : []
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-2xl font-bold text-slate-900">Ponto</h1>
+        <p className="mt-1 text-sm text-slate-500">Bata o ponto, acompanhe seu espelho e corrija dias com batidas faltantes.</p>
+      </header>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Horas hoje" value={`${hoursToday}h`} hint="registradas" tone="primary" />
+        <StatCard label={`Total ${range} dias`} value={`${Math.round(periodTotal * 10) / 10}h`} hint="acumulado" tone="teal" />
+        <StatCard
+          label="Jornada de hoje"
+          value={(() => {
+            const wd = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][new Date().getDay()] as keyof typeof user.weeklySchedule
+            const shift = user.weeklySchedule[wd]
+            return shift ? `${shift[0]}–${shift[1]}` : 'Folga'
+          })()}
+          hint="conforme quadro"
+          tone="amber"
+        />
+        <StatCard label="Dias inconsistentes" value={inconsistentDays} hint="menos de 4 batidas" tone={inconsistentDays > 0 ? 'rose' : 'teal'} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        <SectionCard title="Relógio de ponto">
+          <div className="text-center">
+            <p className="text-4xl font-bold tabular-nums text-slate-900">{formatTime(now.toISOString())}</p>
+            <p className="mt-1 text-xs text-slate-500">
+              Próxima batida: <strong>{timeEntryLabels[nextType]}</strong>
+            </p>
+            {geo.status === 'granted' ? (
+              <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-teal-50 px-2.5 py-1 text-[11px] font-medium text-teal-700">
+                📍 Localização ativa — registrada apenas para seu gestor
+              </p>
+            ) : (
+              <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+                {geo.error ?? 'Para bater o ponto, é obrigatório permitir o compartilhamento da sua localização. Ela fica visível apenas para gestores/RH.'}
+              </p>
+            )}
+            <button
+              type="button"
+              className="btn-primary mt-5 w-full py-3 text-base"
+              onClick={punch}
+              disabled={!canPunch || geoBusy}
+            >
+              {geoBusy
+                ? 'Obtendo localização…'
+                : canPunch
+                  ? geo.status === 'granted'
+                    ? `Registrar ${timeEntryLabels[nextType]}`
+                    : `Permitir local e registrar ${timeEntryLabels[nextType]}`
+                  : 'Ciclo do dia completo ✓'}
+            </button>
+            {todayEntries.length > 0 && (
+              <ul className="mt-5 space-y-2 text-left">
+                {[...todayEntries]
+                  .sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime())
+                  .map((entry) => (
+                    <li key={entry.id} className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-2.5">
+                      <span className="text-sm font-medium text-slate-700">{timeEntryLabels[entry.type]}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-sm font-semibold tabular-nums text-slate-900">
+                          {formatTime(entry.occurredAt)}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-rose-500 hover:text-rose-700"
+                          onClick={() => store.deleteTimeEntry(entry.id)}
+                          title="Estornar batida"
+                        >
+                          estornar
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            )}
+          </div>
+        </SectionCard>
+
+        <div className="lg:col-span-2">
+          <SectionCard
+            title="Meu espelho de ponto"
+            action={
+              <select
+                className="input w-auto py-1.5 text-xs"
+                value={range}
+                onChange={(e) => setRange(Number(e.target.value) as 7 | 15 | 30)}
+                aria-label="Período do espelho"
+              >
+                <option value={7}>Últimos 7 dias</option>
+                <option value={15}>Últimos 15 dias</option>
+                <option value={30}>Últimos 30 dias</option>
+              </select>
+            }
+          >
+            <p className="mb-3 text-xs text-slate-400">
+              Todo dia trabalhado deve ter as 4 batidas (entrada, saída almoço, volta, saída). Clique em <strong>Editar</strong> para corrigir ou completar um dia.
+            </p>
+            <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              {mirror.map((day) => {
+                const hasIssue = day.missing > 0 && (day.isWorkday || day.hours > 0)
+                return (
+                  <li key={day.key} className={`rounded-xl border p-3 ${hasIssue ? 'border-amber-200 bg-amber-50/50' : 'border-slate-100'}`}>
+                    {editingDay === day.key ? (
+                      <DayEditor
+                        day={day}
+                        entries={editingEntries}
+                        onCancel={() => setEditingDay(null)}
+                        onSave={(times) => {
+                          const typed = times
+                            .map((time, i) => ({ type: entryOrder[i]!, time }))
+                            .filter((t) => t.time !== '')
+                          store.setDayEntries(user.id, day.key, typed)
+                          setEditingDay(null)
+                        }}
+                      />
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-medium capitalize text-slate-700">{day.label}</span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {day.punches.map((p, i) => (
+                            <span
+                              key={i}
+                              className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                                p === null
+                                  ? 'bg-rose-50 text-rose-400'
+                                  : 'bg-slate-100 text-slate-700 tabular-nums'
+                              }`}
+                              title={p === null ? `Falta ${timeEntryLabels[entryOrder[i]!]}` : timeEntryLabels[entryOrder[i]!]}
+                            >
+                              {p ?? '--:--'}
+                            </span>
+                          ))}
+                          {hasIssue && (
+                            <StatusBadge tone="amber">
+                              ⚠ {day.missing === 3 ? 'só entrada' : `${day.missing} batida${day.missing > 1 ? 's' : ''} faltando`}
+                            </StatusBadge>
+                          )}
+                          <span className="ml-1 text-sm font-semibold tabular-nums text-slate-900">{day.hours}h</span>
+                          <button type="button" className="btn-secondary px-2.5 py-1 text-[11px]" onClick={() => setEditingDay(day.key)}>
+                            ✏️ Editar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          </SectionCard>
+        </div>
+
+        <SectionCard
+          title={isManager ? 'Equipe hoje' : 'Meu quadro de horários'}
+          action={isManager ? <StatusBadge tone="neutral">{teamToday.length} pessoas</StatusBadge> : undefined}
+        >
+          {isManager ? (
+            teamToday.length === 0 ? (
+              <EmptyState message="Nenhuma pessoa na sua equipe." />
+            ) : (
+              <ul className="space-y-3">
+                {teamToday.map(({ person, entries }) => {
+                  const last = entries[entries.length - 1]
+                  const status = entries.length === 0 ? 'sem batida' : last!.type === 'saida' ? 'fora' : 'presente'
+                  const lastLoc = last?.location
+                  return (
+                    <li key={person.id} className="rounded-xl border border-slate-100 p-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-sm font-semibold text-slate-900">{person.name}</p>
+                        <StatusBadge tone={status === 'presente' ? 'teal' : status === 'fora' ? 'neutral' : 'rose'}>
+                          {status === 'presente' ? 'Presente' : status === 'fora' ? 'Encerrou o dia' : 'Sem batida'}
+                        </StatusBadge>
+                      </div>
+                      <div className="mt-1.5 flex flex-wrap gap-1.5 text-[11px] text-slate-500">
+                        {entries.length === 0 ? (
+                          <span>Nenhuma batida hoje</span>
+                        ) : (
+                          entries.map((e) => (
+                            <span key={e.id} className="rounded-md bg-slate-100 px-1.5 py-0.5 font-medium" title={e.location ? `Local: ${formatGeo(e.location)}` : 'Sem localização'}>
+                              {timeEntryLabels[e.type].slice(0, 3)}: {formatTime(e.occurredAt)}{e.location ? ' 📍' : ''}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                      {lastLoc && (
+                        <p className="mt-1.5 text-[11px] text-slate-500">
+                          📍 Última localização:{' '}
+                          <a href={geoMapLink(lastLoc)} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-600 hover:underline">
+                            {formatGeo(lastLoc)}
+                          </a>
+                        </p>
+                      )}
+                      <p className="mt-1 text-xs font-semibold text-slate-600">
+                        Total: {workedHours(entries)}h
+                      </p>
+                    </li>
+                  )
+                })}
+              </ul>
+            )
+          ) : (
+            <ul className="space-y-2">
+              {(['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom'] as const).map((day) => {
+                const shift = user.weeklySchedule[day]
+                return (
+                  <li
+                    key={day}
+                    className="flex items-center justify-between rounded-xl border border-slate-100 px-4 py-2.5"
+                  >
+                    <span className="text-sm font-medium capitalize text-slate-700">{weekDayLabels[day]}</span>
+                    <span className={`text-sm font-semibold ${shift ? 'text-slate-900' : 'text-slate-400'}`}>
+                      {shift ? `${shift[0]} – ${shift[1]}` : 'Folga'}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  )
+}
+
+/** Editor de um dia do espelho: 4 campos HH:MM (vazio remove a batida). */
+function DayEditor({
+  day,
+  entries,
+  onSave,
+  onCancel,
+}: {
+  day: { key: string; label: string; punches: (string | null)[]; isWorkday: boolean }
+  entries: { id: string; type: TimeEntryType; occurredAt: string }[]
+  onSave: (times: string[]) => void
+  onCancel: () => void
+}) {
+  const initial = dayPunches(entries)
+  const [times, setTimes] = useState<string[]>(() => entryOrder.map((_, i) => initial[i] ?? ''))
+
+  const filled = times.filter((t) => t !== '').length
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-semibold text-slate-600">
+        Editando {day.label} {day.isWorkday ? '(dia útil)' : '(folga)'} — informe as 4 batidas:
+      </p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {entryOrder.map((type, i) => (
+          <div key={type}>
+            <label htmlFor={`punch-${day.key}-${i}`} className="mb-1 block text-[11px] font-medium text-slate-500">
+              {timeEntryLabels[type]}
+            </label>
+            <input
+              id={`punch-${day.key}-${i}`}
+              type="time"
+              className="input px-2 py-1.5 text-sm"
+              value={times[i] ?? ''}
+              onChange={(e) => setTimes((prev) => prev.map((t, j) => (j === i ? e.target.value : t)))}
+            />
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <button type="button" className="btn-primary flex-1 py-2 text-xs" onClick={() => onSave(times)} disabled={filled === 0}>
+          Salvar batidas ({filled}/4)
+        </button>
+        <button type="button" className="btn-secondary flex-1 py-2 text-xs" onClick={onCancel}>
+          Cancelar
+        </button>
+      </div>
+      <p className="text-[11px] text-slate-400">Deixe um campo vazio para remover aquela batida.</p>
+    </div>
+  )
+}

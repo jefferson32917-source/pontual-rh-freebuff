@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 420" role="img" aria-label="Equipe colaborando em painéis de gestão de pessoas">
+  <!-- Editorial corporate illustration: diverse team collaborating around people-analytics dashboards -->
+  <g>
+    <!-- back dashboard panel -->
+    <rect x="60" y="40" width="180" height="120" rx="16" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="2"/>
+    <rect x="76" y="56" width="70" height="10" rx="5" fill="#BFDBFE"/>
+    <rect x="76" y="76" width="148" height="8" rx="4" fill="#E2E8F0"/>
+    <rect x="76" y="92" width="120" height="8" rx="4" fill="#E2E8F0"/>
+    <rect x="76" y="112" width="22" height="34" rx="6" fill="#93C5FD"/>
+    <rect x="104" y="100" width="22" height="46" rx="6" fill="#2563EB"/>
+    <rect x="132" y="120" width="22" height="26" rx="6" fill="#2DD4BF"/>
+    <rect x="160" y="92" width="22" height="54" rx="6" fill="#60A5FA"/>
+
+    <!-- floating pulse card -->
+    <rect x="280" y="70" width="170" height="96" rx="16" fill="#2563EB"/>
+    <path d="M296 122 h18 l10 -22 14 44 10 -22 h20" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="424" cy="94" r="7" fill="#2DD4BF"/>
+
+    <!-- donut chart card -->
+    <rect x="300" y="190" width="130" height="110" rx="16" fill="#FFFFFF" stroke="#DBEAFE" stroke-width="2"/>
+    <circle cx="365" cy="240" r="30" fill="none" stroke="#E2E8F0" stroke-width="12"/>
+    <path d="M365 210 a30 30 0 0 1 29.4 36" fill="none" stroke="#2563EB" stroke-width="12" stroke-linecap="round"/>
+    <path d="M394.4 246 a30 30 0 0 1 -46 14" fill="none" stroke="#2DD4BF" stroke-width="12" stroke-linecap="round"/>
+
+    <!-- front desk -->
+    <rect x="40" y="250" width="300" height="18" rx="9" fill="#DBEAFE"/>
+
+    <!-- person 1 (left, presenting) -->
+    <circle cx="110" cy="200" r="22" fill="#FBBF24"/>
+    <path d="M78 250 q32 -38 64 0 z" fill="#2563EB"/>
+
+    <!-- person 2 (center, seated) -->
+    <circle cx="190" cy="196" r="20" fill="#1F2937"/>
+    <path d="M162 250 q28 -34 56 0 z" fill="#2DD4BF"/>
+
+    <!-- person 3 (right, pointing up) -->
+    <circle cx="260" cy="192" r="21" fill="#9CA3AF"/>
+    <path d="M228 250 q32 -36 64 0 z" fill="#1D4ED8"/>
+    <circle cx="292" cy="150" r="5" fill="#2DD4BF"/>
+
+    <!-- plant -->
+    <rect x="452" y="300" width="34" height="40" rx="8" fill="#93C5FD"/>
+    <path d="M469 300 q-18 -26 -2 -44 M469 300 q20 -20 8 -42" fill="none" stroke="#14B8A6" stroke-width="6" stroke-linecap="round"/>
+  </g>
+</svg>

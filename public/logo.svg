@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 56" role="img" aria-label="Pontual RH Super">
+  <g>
+    <rect x="2" y="10" width="44" height="36" rx="12" fill="#2563EB"/>
+    <!-- clock face -->
+    <circle cx="24" cy="28" r="13" fill="none" stroke="#ffffff" stroke-width="3" />
+    <path d="M24 20 v8 l6 4" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="40" cy="18" r="4.5" fill="#2DD4BF"/>
+    <circle cx="40" cy="18" r="2" fill="#ffffff"/>
+    <text x="58" y="37" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="25" font-weight="700" fill="#1E293B" letter-spacing="-0.5">Pontual</text>
+    <text x="152" y="37" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="25" font-weight="700" fill="#2563EB" letter-spacing="-0.5">RH</text>
+    <text x="196" y="37" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="16" font-weight="700" fill="#14B8A6" letter-spacing="1">SUPER</text>
+  </g>
+</svg>

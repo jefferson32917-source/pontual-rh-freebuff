@@ -1,0 +1,17 @@
+Quem	Como entra	Senha
+Super Admin (você, acesso total)	
+admin@pontual.com	
+admin123
+
+Rafael — gestor da Silva Construções	
+SG001 (ou o e-mail dele)
+pulsar123
+
+Helena — gestora da Mariana Tech	
+MT001	
+pulsar123
+
+
+Beatriz — colaboradora da Silva	
+SC001	
+pulsar123
