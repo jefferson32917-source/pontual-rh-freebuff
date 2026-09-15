@@ -79,11 +79,42 @@ export async function login(identifier: string, password: string): Promise<Login
     return { ok: false, error: 'Credenciais inválidas. Verifique e tente novamente.' }
   }
 
-  const user = await getAuthUser()
-  if (!user) return { ok: false, error: 'Perfil não encontrado. Procure o administrador.' }
-  if (!user.active) {
+  // Busca o perfil em paralelo com nada mais — o Auth já validou a senha.
+  // (getAuthUser() refaria auth.getUser(); aqui aproveitamos o user retornado.)
+  const uid = data.user.id
+  const { data: profile, error: pErr } = await sb.from('profiles').select('*').eq('id', uid).single()
+  if (pErr || !profile) return { ok: false, error: 'Perfil não encontrado. Procure o administrador.' }
+  if (!profile.active) {
     await sb.auth.signOut()
     return { ok: false, error: 'Usuário inativo. Procure o administrador.' }
+  }
+  const user: User = {
+    id: profile.id,
+    companyId: profile.company_id,
+    matricula: profile.matricula,
+    name: profile.name,
+    email: profile.email,
+    password: '',
+    role: profile.role,
+    department: profile.department,
+    jobTitle: profile.job_title,
+    admissionDate: profile.admission_date,
+    managerId: profile.manager_id ?? undefined,
+    avatarColor: profile.avatar_color,
+    photoDataUrl: profile.photo_url ?? undefined,
+    vacationBalanceDays: profile.vacation_balance_days,
+    weeklySchedule: profile.weekly_schedule ?? {},
+    baseSalary: Number(profile.base_salary ?? 0),
+    transportAllowance: profile.transport_allowance,
+    cpf: profile.cpf,
+    ctps: profile.ctps,
+    phone: profile.phone,
+    address: profile.address,
+    cep: profile.cep,
+    confidentialNotes: profile.confidential_notes,
+    dependents: profile.dependents,
+    alimonyPercent: Number(profile.alimony_percent ?? 0),
+    active: profile.active,
   }
   return { ok: true, user }
 }

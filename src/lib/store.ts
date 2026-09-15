@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type {
   Company,
   Feedback,
@@ -91,9 +91,10 @@ export function useHrData() {
     }
   }, [])
 
-  useEffect(() => {
-    void reload()
-  }, [reload])
+  // NÃO carrega as tabelas no mount: com RLS ativo, o visitor anônimo não
+  // lê nada útil e seriam 12 queries jogadas fora. O App chama reload()
+  // assim que há um usuário autenticado.
+  // useEffect(() => { void reload() }, [reload])
 
   // ============ Empresas (Super Admin) ============
   const createCompany = useCallback((name: string, cnpj: string): Company => {

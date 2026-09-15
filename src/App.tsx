@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { Role, User } from './types'
 import { getAuthUser, clearSession, getSession, setSession, logout as authLogout } from './lib/auth'
+import { getSupabase } from './lib/supabase'
 import { useHrData } from './lib/store'
 import { ImpersonationProvider, useImpersonation } from './lib/impersonation'
 import Layout from './components/Layout'
@@ -36,21 +37,37 @@ function AppRoutes() {
   const [authUser, setAuthUser] = useState<User | null>(null)
 
   // resolve a sessão real do Supabase Auth na carga (e a cada refreshUser)
+  // localGetSession evita uma viagem de rede quando não há sessão salva
   useEffect(() => {
     let alive = true
-    void getAuthUser().then((u) => {
+    const local = getSupabase().auth.getSession()
+    void local.then(({ data: localData }: { data: { session: unknown } }) => {
       if (!alive) return
-      setAuthUser(u)
-      setAuthReady(true)
+      if (!localData.session) {
+        // sem sessão: nem chama a rede
+        setAuthUser(null)
+        setAuthReady(true)
+        return
+      }
+      void getAuthUser().then((u) => {
+        if (!alive) return
+        setAuthUser(u)
+        setAuthReady(true)
+      })
     })
     return () => {
       alive = false
     }
   }, [sessionTick])
 
-  // ao autenticar, recarrega os dados COM a sessão ativa (RLS passa a aplicar)
+  // ao autenticar, recarrega os dados COM a sessão ativa (RLS passa a aplicar).
+  // reload() já roda no mount; aqui só reexecuta se o usuário mudou de verdade.
+  const lastLoadedUserId = useRef<string | null>(null)
   useEffect(() => {
-    if (authUser) void store.reload()
+    if (authUser && lastLoadedUserId.current !== authUser.id) {
+      lastLoadedUserId.current = authUser.id
+      void store.reload()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id])
 
