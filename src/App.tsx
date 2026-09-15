@@ -167,7 +167,13 @@ function AppRoutes() {
     }
   }, [loggedUser?.id])
 
-  if (!authReady || store.loading || store.heavyLoading) {
+  // Tela de carga completa: só bloqueia enquanto HÁ sessão (o carregamento
+  // de dados só acontece para usuário logado). Sem sessão, o login deve
+  // aparecer imediatamente — nunca travar no "Carregando…".
+  const booting =
+    !authReady || (!!authUser && (store.loading || store.heavyLoading))
+
+  if (booting) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
