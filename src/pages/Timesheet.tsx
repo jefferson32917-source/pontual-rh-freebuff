@@ -31,6 +31,10 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
   const [now, setNow] = useState(() => new Date())
   const [range, setRange] = useState<7 | 15 | 30>(7)
   const [editingDay, setEditingDay] = useState<string | null>(null)
+  const [dayOffDay, setDayOffDay] = useState<string | null>(null)
+  const [dayOffReason, setDayOffReason] = useState('')
+  const [dayOffError, setDayOffError] = useState<string | null>(null)
+  const [dayOffBusy, setDayOffBusy] = useState(false)
   const [geoBusy, setGeoBusy] = useState(false)
   const today = dayKey(now)
 
@@ -88,6 +92,23 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
   const inconsistentDays = mirror.filter((d) => d.missing > 0 && (d.isWorkday || d.hours > 0)).length
   const periodTotal = mirror.reduce((acc, d) => acc + d.hours, 0)
 
+  // folgas dos dias exibidos no espelho (do próprio usuário)
+  const dayOffByKey = useMemo(() => {
+    const map = new Map<string, { status: string; reason: string; id: string }>()
+    for (const o of data.dayOffs) {
+      if (o.employeeId === user.id) map.set(o.day, { status: o.status, reason: o.reason, id: o.id })
+    }
+    return map
+  }, [data.dayOffs, user.id])
+
+  // folgas pendentes da equipe (para o gestor aprovar)
+  const pendingDayOffs = useMemo(() => {
+    if (!isManager) return []
+    return data.dayOffs.filter(
+      (o) => o.status === 'pendente' && o.employeeId !== user.id && teamIds.includes(o.employeeId),
+    )
+  }, [data.dayOffs, isManager, teamIds, user.id])
+
   // visão da equipe (hoje)
   const teamToday = useMemo(() => {
     if (!isManager) return []
@@ -117,11 +138,24 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
     }
   }
 
-  const canPunch =
-    (nextType === 'entrada' && todayEntries.length === 0) ||
+  const canPunch =    (nextType === 'entrada' && todayEntries.length === 0) ||
     (todayEntries.length > 0 && todayEntries[todayEntries.length - 1]!.type !== 'saida')
 
   const editingEntries = editingDay ? data.timeEntries.filter((t) => t.employeeId === user.id && localDayKey(t.occurredAt) === editingDay) : []
+
+  function submitDayOff() {
+    if (!dayOffDay) return
+    setDayOffBusy(true)
+    setDayOffError(null)
+    store
+      .createDayOff(user.id, dayOffDay, dayOffReason.trim() || 'Folga programada — dia sem batidas')
+      .then(() => {
+        setDayOffDay(null)
+        setDayOffReason('')
+      })
+      .catch((e) => setDayOffError(e instanceof Error ? e.message : 'Falha ao solicitar folga.'))
+      .finally(() => setDayOffBusy(false))
+  }
 
   return (
     <div className="space-y-6">
@@ -227,7 +261,32 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                 const hasIssue = day.missing > 0 && (day.isWorkday || day.hours > 0)
                 return (
                   <li key={day.key} className={`rounded-xl border p-3 ${hasIssue ? 'border-amber-200 bg-amber-50/50' : 'border-slate-100'}`}>
-                    {editingDay === day.key ? (
+                    {dayOffDay === day.key ? (
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-slate-600">
+                          Solicitar folga para {day.label} — o dia ficará sinalizado como folga (sem batidas) e o gestor irá aprovar.
+                        </p>
+                        <input
+                          type="text"
+                          className="input text-sm"
+                          placeholder="Motivo (opcional): ex. banco de horas, compensação…"
+                          maxLength={280}
+                          value={dayOffReason}
+                          onChange={(e) => setDayOffReason(e.target.value)}
+                        />
+                        {dayOffError && (
+                          <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{dayOffError}</p>
+                        )}
+                        <div className="flex gap-2">
+                          <button type="button" className="btn-primary flex-1 py-2 text-xs" onClick={submitDayOff} disabled={dayOffBusy}>
+                            {dayOffBusy ? 'Enviando…' : 'Enviar solicitação'}
+                          </button>
+                          <button type="button" className="btn-secondary flex-1 py-2 text-xs" onClick={() => { setDayOffDay(null); setDayOffError(null) }}>
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    ) : editingDay === day.key ? (
                       <DayEditor
                         day={day}
                         entries={editingEntries}
@@ -262,7 +321,24 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                               ⚠ {day.missing === 3 ? 'só entrada' : `${day.missing} batida${day.missing > 1 ? 's' : ''} faltando`}
                             </StatusBadge>
                           )}
+                          {(() => {
+                            const off = dayOffByKey.get(day.key)
+                            if (!off) return null
+                            return (
+                              <StatusBadge tone={off.status === 'aprovado' ? 'teal' : off.status === 'pendente' ? 'amber' : 'rose'}>
+                                {off.status === 'aprovado' ? '🌴 Folga aprovada' : off.status === 'pendente' ? '🌴 Folga pendente' : '🌴 Folga recusada'}
+                              </StatusBadge>
+                            )
+                          })()}
                           <span className="ml-1 text-sm font-semibold tabular-nums text-slate-900">{day.hours}h</span>
+                          <button
+                            type="button"
+                            className="btn-secondary px-2.5 py-1 text-[11px]"
+                            onClick={() => setDayOffDay(dayOffDay === day.key ? null : day.key)}
+                            title="Marcar este dia como folga (sem batidas), sujeito à aprovação do gestor"
+                          >
+                            🌴 Folga
+                          </button>
                           <button type="button" className="btn-secondary px-2.5 py-1 text-[11px]" onClick={() => setEditingDay(day.key)}>
                             ✏️ Editar
                           </button>
@@ -280,6 +356,34 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
           title={isManager ? 'Equipe hoje' : 'Meu quadro de horários'}
           action={isManager ? <StatusBadge tone="neutral">{teamToday.length} pessoas</StatusBadge> : undefined}
         >
+          {isManager && pendingDayOffs.length > 0 && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <p className="text-xs font-semibold text-amber-800">🌴 Solicitações de folga aguardando aprovação</p>
+              <ul className="mt-2 space-y-2">
+                {pendingDayOffs.map((o) => {
+                  const person = data.users.find((u) => u.id === o.employeeId)
+                  return (
+                    <li key={o.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-100 bg-white px-3 py-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {person?.name ?? 'Colaborador'} — {o.day.split('-').reverse().join('/')}
+                        </p>
+                        <p className="text-[11px] text-slate-500">{o.reason}</p>
+                      </div>
+                      <div className="flex gap-1.5">
+                        <button type="button" className="btn-primary px-3 py-1.5 text-[11px]" onClick={() => store.updateDayOffStatus(o.id, 'aprovado')}>
+                          Aprovar
+                        </button>
+                        <button type="button" className="btn-secondary px-3 py-1.5 text-[11px]" onClick={() => store.updateDayOffStatus(o.id, 'reprovado')}>
+                          Recusar
+                        </button>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
           {isManager ? (
             teamToday.length === 0 ? (
               <EmptyState message="Nenhuma pessoa na sua equipe." />

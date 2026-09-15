@@ -239,6 +239,8 @@ export interface HrData {
   vacancies: Vacancy[]
   requests: Request[]
   vacations: VacationRequest[]
+  vacationHistory: import('../types').VacationHistoryItem[]
+  dayOffs: import('../types').DayOffRequest[]
   timeEntries: TimeEntry[]
   tasks: Record<string, TaskItem[]>
   payrolls: PayrollRun[]
@@ -247,7 +249,7 @@ export interface HrData {
 
 export async function loadAllData(): Promise<HrData> {
   const sb = getSupabase()
-  const [companies, profiles, pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank] =
+  const [companies, profiles, pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank, vacationHistory, dayOffs] =
     await Promise.all([
       sb.from('companies').select('*').order('created_at'),
       sb.from('profiles').select('*').order('name'),
@@ -261,6 +263,15 @@ export async function loadAllData(): Promise<HrData> {
       sb.from('tasks').select('*').order('created_at'),
       sb.from('payrolls').select('*'),
       sb.from('hour_bank').select('*').order('created_at', { ascending: false }),
+      // falha em uma não derruba a carga: tabelas novas podem ainda não existir
+      sb.from('vacation_history').select('*').order('period_start', { ascending: false }).then(
+        (r) => (r.error ? { data: [], error: null } : r),
+        () => ({ data: [], error: null }),
+      ),
+      sb.from('day_off_requests').select('*').order('day', { ascending: false }).then(
+        (r) => (r.error ? { data: [], error: null } : r),
+        () => ({ data: [], error: null }),
+      ),
     ])
 
   const firstErr = [companies, profiles, pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank].find(
@@ -296,6 +307,25 @@ export async function loadAllData(): Promise<HrData> {
     vacancies: (vacancies.data ?? []).map(toVacancy),
     requests: (requests.data ?? []).map((r) => toRequest(r, attachMap.get(r.id) ?? [])),
     vacations: (vacations.data ?? []).map(toVacation),
+    vacationHistory: ((vacationHistory.data ?? []) as any[]).map((r) => ({
+      id: r.id,
+      employeeId: r.employee_id,
+      periodStart: r.period_start,
+      periodEnd: r.period_end,
+      days: r.days,
+      kind: r.kind,
+      note: r.note ?? undefined,
+      admissionDate: r.admission_date ?? undefined,
+      createdAt: r.created_at,
+    })),
+    dayOffs: ((dayOffs.data ?? []) as any[]).map((r) => ({
+      id: r.id,
+      employeeId: r.employee_id,
+      day: r.day,
+      reason: r.reason,
+      status: r.status,
+      createdAt: r.created_at,
+    })),
     timeEntries: (timeEntries.data ?? []).map(toTimeEntry),
     tasks: tasksByUser,
     payrolls: (payrolls.data ?? []).map(toPayroll),
@@ -614,6 +644,80 @@ export async function apiAddVacation(v: Omit<VacationRequest, 'id' | 'createdAt'
 export async function apiUpdateVacationStatus(id: string, status: VacationRequest['status']): Promise<void> {
   const sb = getSupabase()
   const { error } = await sb.from('vacation_requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+// ============================================================
+// Histórico de férias
+// ============================================================
+
+export async function apiListVacationHistory(employeeIds?: string[]): Promise<import('../types').VacationHistoryItem[]> {
+  const sb = getSupabase()
+  let q = sb.from('vacation_history').select('*').order('period_start', { ascending: false })
+  if (employeeIds && employeeIds.length > 0) q = q.in('employee_id', employeeIds)
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    employeeId: r.employee_id,
+    periodStart: r.period_start,
+    periodEnd: r.period_end,
+    days: r.days,
+    kind: r.kind,
+    note: r.note ?? undefined,
+    admissionDate: r.admission_date ?? undefined,
+    createdAt: r.created_at,
+  }))
+}
+
+export async function apiAddVacationHistory(item: Omit<import('../types').VacationHistoryItem, 'id' | 'createdAt'>): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('vacation_history').insert({
+    employee_id: item.employeeId,
+    period_start: item.periodStart,
+    period_end: item.periodEnd,
+    days: item.days,
+    kind: item.kind,
+    note: item.note ?? null,
+    admission_date: item.admissionDate ?? null,
+  })
+  if (error) throw new Error(error.message)
+}
+
+// ============================================================
+// Folgas do espelho de ponto
+// ============================================================
+
+export async function apiListDayOffs(employeeIds?: string[]): Promise<import('../types').DayOffRequest[]> {
+  const sb = getSupabase()
+  let q = sb.from('day_off_requests').select('*').order('day', { ascending: false })
+  if (employeeIds && employeeIds.length > 0) q = q.in('employee_id', employeeIds)
+  const { data, error } = await q
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: any) => ({
+    id: r.id,
+    employeeId: r.employee_id,
+    day: r.day,
+    reason: r.reason,
+    status: r.status,
+    createdAt: r.created_at,
+  }))
+}
+
+export async function apiCreateDayOff(employeeId: string, day: string, reason: string): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('day_off_requests').insert({ employee_id: employeeId, day, reason })
+  if (error) {
+    if (error.code === '23505' || error.message.includes('duplicate')) {
+      throw new Error('Já existe uma folga solicitada para este dia.')
+    }
+    throw new Error(error.message)
+  }
+}
+
+export async function apiUpdateDayOffStatus(id: string, status: 'aprovado' | 'reprovado'): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('day_off_requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id)
   if (error) throw new Error(error.message)
 }
 

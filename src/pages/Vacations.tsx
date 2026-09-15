@@ -35,6 +35,24 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
     })
   }, [data.vacations, data.users, user])
 
+  // histórico de férias (gozo registrado), visível conforme o papel
+  const history = useMemo(() => {
+    return data.vacationHistory.filter((h) => {
+      if (user.role === 'super_admin') return true
+      if (user.role === 'gestor') {
+        const requester = data.users.find((u) => u.id === h.employeeId)
+        return (
+          (requester?.companyId === user.companyId && requester?.role === 'colaborador') ||
+          h.employeeId === user.id
+        )
+      }
+      return h.employeeId === user.id
+    })
+  }, [data.vacationHistory, data.users, user])
+
+  const myHistory = history.filter((h) => h.employeeId === user.id)
+  const totalEnjoyed = myHistory.reduce((acc, h) => acc + h.days, 0)
+
   const pending = visible.filter((v) => v.status === 'pendente')
   const approvedUpcoming = visible.filter((v) => {
     if (v.status !== 'aprovada') return false
@@ -93,12 +111,7 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
         <StatCard label="Seu saldo" value={`${user.vacationBalanceDays} dias`} hint="disponíveis" tone="primary" />
         <StatCard label="Solicitações pendentes" value={pending.length} hint="aguardando decisão" tone="amber" />
         <StatCard label="Férias futuras" value={approvedUpcoming.length} hint="aprovadas" tone="teal" />
-        <StatCard
-          label="Dias gozados (equipe)"
-          value={data.vacations.filter((v) => v.status === 'gozada').reduce((acc, v) => acc + v.days, 0)}
-          hint="acumulado"
-          tone="rose"
-        />
+        <StatCard label="Dias gozados (você)" value={totalEnjoyed} hint="desde a admissão" tone="rose" />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -205,6 +218,39 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
                         </button>
                       </div>
                     )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title={canApprove ? 'Histórico de férias (equipe)' : 'Meu histórico de férias'}
+          action={<StatusBadge tone="neutral">{history.length} registros</StatusBadge>}
+        >
+          {history.length === 0 ? (
+            <EmptyState message="Nenhum período de férias registrado no histórico ainda." />
+          ) : (
+            <ul className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
+              {history.map((h) => {
+                const person = data.users.find((u) => u.id === h.employeeId)
+                return (
+                  <li key={h.id} className="rounded-xl border border-slate-100 px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {formatDate(h.periodStart)} – {formatDate(h.periodEnd)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {canApprove && person ? `${person.name} · ` : ''}
+                          {h.days} dia{h.days > 1 ? 's' : ''} · {h.kind}
+                          {h.admissionDate ? ` · admissão ${formatDate(h.admissionDate)}` : ''}
+                        </p>
+                        {h.note && <p className="mt-0.5 text-[11px] text-slate-400">{h.note}</p>}
+                      </div>
+                      <StatusBadge tone="primary">gozadas</StatusBadge>
+                    </div>
                   </li>
                 )
               })}

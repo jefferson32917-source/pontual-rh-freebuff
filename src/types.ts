@@ -150,6 +150,30 @@ export interface VacationRequest {
   note?: string
 }
 
+/** Evento do histórico de férias (gozo, venda, abono, ajuste). */
+export interface VacationHistoryItem {
+  id: string
+  employeeId: string
+  periodStart: string
+  periodEnd: string
+  days: number
+  kind: 'gozada' | 'venda' | 'abono' | 'ajuste'
+  note?: string
+  admissionDate?: string
+  createdAt: string
+}
+
+/** Folga de um dia, marcada no espelho de ponto e aprovada pelo gestor. */
+export interface DayOffRequest {
+  id: string
+  employeeId: string
+  /** YYYY-MM-DD */
+  day: string
+  reason: string
+  status: 'pendente' | 'aprovado' | 'reprovado'
+  createdAt: string
+}
+
 export type TimeEntryType = 'entrada' | 'saida_almoco' | 'volta_almoco' | 'saida'
 
 export interface GeoLocation {

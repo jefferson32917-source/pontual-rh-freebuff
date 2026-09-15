@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import type {
   Company,
+  DayOffRequest,
   Feedback,
   GeoLocation,
   HourBankAdjustment,
@@ -11,6 +12,7 @@ import type {
   TimeEntry,
   TimeEntryType,
   User,
+  VacationHistoryItem,
   VacationRequest,
   Vacancy,
 } from '../types'
@@ -53,6 +55,8 @@ export interface HrData {
   vacancies: Vacancy[]
   requests: Request[]
   vacations: VacationRequest[]
+  vacationHistory: VacationHistoryItem[]
+  dayOffs: DayOffRequest[]
   timeEntries: TimeEntry[]
   tasks: Record<string, TaskItem[]>
   payrolls: PayrollRun[]
@@ -69,6 +73,8 @@ const emptyData: HrData = {
   vacancies: [],
   requests: [],
   vacations: [],
+  vacationHistory: [],
+  dayOffs: [],
   timeEntries: [],
   tasks: {},
   payrolls: [],
@@ -340,6 +346,51 @@ export function useHrData() {
     [reload],
   )
 
+  // ============ Histórico de férias ============
+  const addVacationHistory = useCallback(
+    (item: Omit<VacationHistoryItem, 'id' | 'createdAt'>) => {
+      const optimistic: VacationHistoryItem = { ...item, id: `local_vh${Date.now()}`, createdAt: new Date().toISOString() }
+      setData((d) => ({ ...d, vacationHistory: [optimistic, ...d.vacationHistory] }))
+      void api
+        .apiAddVacationHistory(item)
+        .then(() => void reload())
+        .catch(() => {
+          setData((d) => ({ ...d, vacationHistory: d.vacationHistory.filter((h) => h.id !== optimistic.id) }))
+          void reload()
+        })
+    },
+    [reload],
+  )
+
+  // ============ Folgas do espelho de ponto ============
+  const createDayOff = useCallback(
+    (employeeId: string, day: string, reason: string): Promise<void> => {
+      const optimistic: DayOffRequest = {
+        id: `local_do${Date.now()}`,
+        employeeId,
+        day,
+        reason,
+        status: 'pendente',
+        createdAt: new Date().toISOString(),
+      }
+      setData((d) => ({ ...d, dayOffs: [optimistic, ...d.dayOffs] }))
+      return api
+        .apiCreateDayOff(employeeId, day, reason)
+        .then(() => void reload())
+        .catch((e) => {
+          setData((d) => ({ ...d, dayOffs: d.dayOffs.filter((o) => o.id !== optimistic.id) }))
+          throw e
+        })
+    },
+    [reload],
+  )
+
+  const updateDayOffStatus = useCallback((id: string, status: 'aprovado' | 'reprovado') => {
+    setData((d) => ({ ...d, dayOffs: d.dayOffs.map((o) => (o.id === id ? { ...o, status } : o)) }))
+    if (id.startsWith('local_')) return
+    void api.apiUpdateDayOffStatus(id, status).catch(() => void reload())
+  }, [reload])
+
   const addVacation = useCallback((vacation: VacationRequest) => {
     const optimistic: VacationRequest = { ...vacation, id: `local_vac${Date.now()}` }
     setData((d) => ({ ...d, vacations: [optimistic, ...d.vacations] }))
@@ -570,6 +621,9 @@ export function useHrData() {
       createRequest,
       addVacation,
       updateVacationStatus,
+      addVacationHistory,
+      createDayOff,
+      updateDayOffStatus,
       addTimeEntry,
       deleteTimeEntry,
       punchNext,
