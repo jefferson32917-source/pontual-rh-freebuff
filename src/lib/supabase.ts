@@ -15,8 +15,22 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
  * the anon key is public by design and grants nothing without RLS.
  */
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+/** remove espaços, quebras de linha e prefixos 'NOME=' colados ao colar no painel */
+function cleanEnv(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined
+  let v = value.trim()
+  const eq = v.indexOf('=')
+  const looksLikeUrl = v.includes('supabase.co')
+  const looksLikeJwt = v.startsWith('eyJ')
+  if (eq > -1 && (looksLikeUrl || looksLikeJwt)) {
+    v = v.slice(eq + 1)
+  }
+  v = v.replace(/^VITE_SUPABASE_URL=/i, '').replace(/^VITE_SUPABASE_ANON_KEY=/i, '')
+  return v.trim() || undefined
+}
+
+const url = cleanEnv(import.meta.env.VITE_SUPABASE_URL as string | undefined)
+const anonKey = cleanEnv(import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)
 
 export const isSupabaseConfigured =
   typeof url === 'string' &&
