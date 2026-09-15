@@ -2,8 +2,8 @@ import { useMemo, useState } from 'react'
 import type { HrStore } from '../lib/store'
 import type { User, WeekDay } from '../types'
 import { weekDayLabels } from '../types'
-import { formatDate, initials, localDayKey, localTodayKey, roleLabels, weekDayShort, workedHours } from '../lib/format'
-import { SectionCard, StatusBadge } from '../components/ui'
+import { formatDate, localDayKey, localTodayKey, roleLabels, weekDayShort, workedHours } from '../lib/format'
+import { Avatar, SectionCard, StatusBadge } from '../components/ui'
 
 const weekOrder: WeekDay[] = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom']
 
@@ -95,13 +95,7 @@ export default function Team({ user, store }: { user: User; store: HrStore }) {
             const hoursToday = workedHours(todayEntries.filter((t) => t.employeeId === person.id))
             return (
               <li key={person.id} className="flex flex-wrap items-center gap-4 py-4">
-                <span
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white"
-                  style={{ backgroundColor: person.avatarColor }}
-                  aria-hidden="true"
-                >
-                  {initials(person.name)}
-                </span>
+                <Avatar name={person.name} color={person.avatarColor} size={44} photoUrl={person.photoDataUrl} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {person.name}

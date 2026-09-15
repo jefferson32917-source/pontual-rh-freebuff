@@ -303,7 +303,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
             const company = companyOf(u.companyId)
             return (
               <li key={u.id} className="flex flex-wrap items-center gap-3 py-4">
-                <Avatar name={u.name} color={u.avatarColor} size={40} />
+                <Avatar name={u.name} color={u.avatarColor} size={40} photoUrl={u.photoDataUrl} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {u.name}

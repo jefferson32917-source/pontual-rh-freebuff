@@ -25,6 +25,10 @@ import { localDayKey, localTodayKey } from './format'
  * A interface (HrStore) é a mesma da versão demo, então nenhuma página
  * precisou ser reescrita. As mutações atualizam o estado local de forma
  * otimista e persistem na nuvem; falhas revertem e propagam o erro.
+ *
+ * LAZY LOADING: reload() carrega em duas fases — o core (empresas +
+ * usuários) primeiro, para o app abrir instantâneo, e as tabelas pesadas
+ * (ponto, folha, férias…) em segundo plano, sem bloquear a navegação.
  */
 
 export interface NewUserData {
@@ -87,12 +91,45 @@ export function useHrData() {
   const [error, setError] = useState<string | null>(null)
   void setLoading
 
+  /** true enquanto a carga de dados pesados está em andamento (2ª fase). */
+  const [heavyLoading, setHeavyLoading] = useState(false)
+
   const reload = useCallback(async () => {
     setError(null)
+    setLoading(true)
+    setHeavyLoading(true)
     try {
-      const fresh = await api.loadAllData()
-      setData(fresh)
+      // Fase 1: core (empresas + usuários) — abre o app imediatamente.
+      const core = await api.loadCoreData()
+      setData((d) => ({ ...d, ...core }))
+      setLoading(false)
+      // Fase 2: tabelas pesadas em segundo plano. Falha aqui NÃO derruba
+      // o app: o usuário já navega e pode tentar recarregar depois.
+      void api
+        .loadHeavyData()
+        .then((heavy) => setData((d) => ({ ...d, ...heavy })))
+        .then(() => {
+          // Migração silenciosa e única de fotos legadas (dataURL -> Storage,
+          // com compressão). Depois de migrado, o perfil guarda só a URL curta.
+          void api.fetchLegacyPhotoUrls().then((legacy) => {
+            for (const { id, url } of legacy) {
+              void api.migrateLegacyPhoto(id, url).then((newUrl) => {
+                if (newUrl) {
+                  setData((cur) => ({
+                    ...cur,
+                    users: cur.users.map((x) => (x.id === id ? { ...x, photoDataUrl: newUrl } : x)),
+                  }))
+                }
+              })
+            }
+          })
+        })
+        .catch((e) => {
+          console.warn('[store] carga de dados pesados falhou:', e instanceof Error ? e.message : e)
+        })
+        .finally(() => setHeavyLoading(false))
     } catch (e) {
+      setLoading(false)
       setError(e instanceof Error ? e.message : 'Falha ao carregar dados.')
     }
   }, [])
@@ -298,12 +335,27 @@ export function useHrData() {
     void api.apiAdminUpdateUser(userId, { password: newPassword }).catch(() => void reload())
   }, [reload])
 
-  const updatePhoto = useCallback((userId: string, photoDataUrl: string | undefined) => {
-    setData((d) => ({
-      ...d,
-      users: d.users.map((u) => (u.id === userId ? { ...u, photoDataUrl } : u)),
-    }))
-    void api.apiUpdatePhoto(userId, photoDataUrl).catch(() => void reload())
+  const updatePhoto = useCallback((userId: string, blob: Blob | undefined) => {
+    if (!blob) {
+      // remover foto: limpa perfil e Storage
+      setData((d) => ({
+        ...d,
+        users: d.users.map((u) => (u.id === userId ? { ...u, photoDataUrl: undefined } : u)),
+      }))
+      void api.apiUpdatePhoto(userId, undefined).catch(() => void reload())
+      void import('./photo').then(({ removeAvatar }) => removeAvatar(userId)).catch(() => {})
+      return
+    }
+    void import('./photo')
+      .then(({ uploadAvatar }) => uploadAvatar(userId, blob))
+      .then((url) => {
+        setData((d) => ({
+          ...d,
+          users: d.users.map((u) => (u.id === userId ? { ...u, photoDataUrl: url } : u)),
+        }))
+        return api.apiUpdatePhoto(userId, url)
+      })
+      .catch(() => void reload())
   }, [reload])
 
   // ============ Feedback / requisições / férias / ponto ============
@@ -606,6 +658,7 @@ export function useHrData() {
     () => ({
       data,
       loading,
+      heavyLoading,
       error,
       reload,
       createCompany,
@@ -643,7 +696,7 @@ export function useHrData() {
       resetData,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, loading, error],
+    [data, loading, heavyLoading, error],
   )
 }
 

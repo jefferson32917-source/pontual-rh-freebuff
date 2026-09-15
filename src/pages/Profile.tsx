@@ -5,8 +5,8 @@ import { editableFields } from '../lib/permissions'
 import { changePasswordSecure } from '../lib/auth'
 import type { User, WeekDay } from '../types'
 import { weekDayLabels } from '../types'
-import { formatDate, initials, roleLabels } from '../lib/format'
-import { SectionCard, StatusBadge } from '../components/ui'
+import { formatDate, roleLabels } from '../lib/format'
+import { Avatar, SectionCard, StatusBadge } from '../components/ui'
 
 const weekOrder: WeekDay[] = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom']
 
@@ -27,25 +27,30 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
   const [confirmPassword, setConfirmPassword] = useState('')
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
 
-  function handlePhoto(e: ChangeEvent<HTMLInputElement>) {
+  async function handlePhoto(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
       setMsg({ kind: 'error', text: 'Foto deve ser PNG, JPG ou WEBP.' })
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setMsg({ kind: 'error', text: 'Foto deve ter no máximo 5 MB.' })
+    if (file.size > 25 * 1024 * 1024) {
+      setMsg({ kind: 'error', text: 'Arquivo muito grande (máx. 25 MB).' })
       return
     }
-    const reader = new FileReader()
-    reader.onload = () => {
-      store.updatePhoto(current.id, String(reader.result))
+    try {
+      setMsg({ kind: 'ok', text: 'Processando foto…' })
+      // Compressão no cliente: 256x256 WebP (~10–30 KB) antes de subir.
+      const { compressAvatar } = await import('../lib/photo')
+      const blob = await compressAvatar(file)
+      store.updatePhoto(current.id, blob)
       setMsg({ kind: 'ok', text: 'Foto atualizada!' })
       onUserUpdated()
+    } catch (err) {
+      setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Falha ao processar a foto.' })
+    } finally {
+      if (fileRef.current) fileRef.current.value = ''
     }
-    reader.readAsDataURL(file)
-    if (fileRef.current) fileRef.current.value = ''
   }
 
   function handleProfile(e: FormEvent) {
@@ -108,21 +113,7 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
       <div className="grid gap-6 lg:grid-cols-3">
         <SectionCard title="Identidade">
           <div className="flex flex-col items-center text-center">
-            {current.photoDataUrl ? (
-              <img
-                src={current.photoDataUrl}
-                alt={`Foto de ${current.name}`}
-                className="h-24 w-24 rounded-full object-cover ring-4 ring-primary-100"
-              />
-            ) : (
-              <span
-                className="inline-flex h-24 w-24 items-center justify-center rounded-full text-2xl font-semibold text-white ring-4 ring-primary-100"
-                style={{ backgroundColor: current.avatarColor }}
-                aria-hidden="true"
-              >
-                {initials(current.name)}
-              </span>
-            )}
+            <Avatar name={current.name} color={current.avatarColor} size={96} photoUrl={current.photoDataUrl} />
             <p className="mt-3 text-base font-semibold text-slate-900">{current.name}</p>
             {current.matricula && (
               <p className="mt-0.5 font-mono text-sm text-primary-700">{current.matricula}</p>
@@ -156,7 +147,7 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
                 Remover foto
               </button>
             )}
-            <p className="mt-3 text-[11px] text-slate-400">PNG, JPG ou WEBP — máx. 5 MB</p>
+            <p className="mt-3 text-[11px] text-slate-400">PNG, JPG ou WEBP — recortada em 256px automaticamente</p>
           </div>
         </SectionCard>
 

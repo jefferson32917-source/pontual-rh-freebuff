@@ -227,13 +227,19 @@ begin
     raise exception 'PERMISSION_DENIED';
   end if;
 
+  -- IMPORTANTE: confirmation_token/recovery_token/email_change_token_new/email_change
+  -- precisam ser '' (string vazia), nunca NULL. O GoTrue (Auth) falha com HTTP 500
+  -- ("Scan error ... converting NULL to string is unsupported") ao ler um usuário
+  -- com qualquer um desses campos NULL, impedindo o login.
   insert into auth.users (
     instance_id, id, aud, role, email, encrypted_password,
     email_confirmed_at, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change,
     raw_app_meta_data, raw_user_meta_data
   ) values (
     '00000000-0000-0000-0000-000000000000', gen_random_uuid(), 'authenticated', 'authenticated',
     lower(p_email), crypt(p_password, gen_salt('bf')), now(), now(), now(),
+    '', '', '', '',
     '{"provider":"email","providers":["email"]}'::jsonb,
     jsonb_build_object('name', p_name)
   )
@@ -250,7 +256,31 @@ begin
     p_vacation_balance, p_weekly_schedule, p_base_salary, p_transport, p_cpf,
     p_ctps, p_phone, p_address, p_cep, p_confidential, p_dependents,
     p_alimony, true
-  );
+  )
+  on conflict (id) do update set
+    name = excluded.name,
+    email = excluded.email,
+    role = excluded.role,
+    company_id = excluded.company_id,
+    matricula = excluded.matricula,
+    job_title = excluded.job_title,
+    department = excluded.department,
+    admission_date = excluded.admission_date,
+    manager_id = excluded.manager_id,
+    avatar_color = excluded.avatar_color,
+    vacation_balance_days = excluded.vacation_balance_days,
+    weekly_schedule = excluded.weekly_schedule,
+    base_salary = excluded.base_salary,
+    transport_allowance = excluded.transport_allowance,
+    cpf = excluded.cpf,
+    ctps = excluded.ctps,
+    phone = excluded.phone,
+    address = excluded.address,
+    cep = excluded.cep,
+    confidential_notes = excluded.confidential_notes,
+    dependents = excluded.dependents,
+    alimony_percent = excluded.alimony_percent,
+    active = true;
   return v_uid;
 end;
 $$;

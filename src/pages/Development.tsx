@@ -173,7 +173,7 @@ export default function Development({ user, store }: { user: User; store: HrStor
                 const name = f.anonymous ? 'Anônimo' : (from?.name ?? 'Colega')
                 return (
                   <li key={f.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-4">
-                    <Avatar name={name} color={from?.avatarColor ?? '#94A3B8'} />
+                    <Avatar name={name} color={from?.avatarColor ?? '#94A3B8'} photoUrl={from?.photoDataUrl} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="text-sm font-semibold text-slate-900">{name}</p>

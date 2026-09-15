@@ -247,12 +247,45 @@ export interface HrData {
   hourBank: HourBankAdjustment[]
 }
 
-export async function loadAllData(): Promise<HrData> {
+/**
+ * Carregamento em fases (lazy loading de dados):
+ * - loadCoreData(): empresas + perfis — o mínimo para autenticar, rotear
+ *   e desenhar o shell do app. Rápido por natureza.
+ * - loadHeavyData(): tudo o resto (ponto, folha, férias, requisições…).
+ *   Carrega em segundo plano enquanto o usuário já navega.
+ */
+export async function loadCoreData(): Promise<Pick<HrData, 'companies' | 'users'>> {
   const sb = getSupabase()
-  const [companies, profiles, pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank, vacationHistory, dayOffs] =
+  const [companies, profiles] = await Promise.all([
+    sb.from('companies').select('*').order('created_at'),
+    sb.from('profiles').select('*').order('name'),
+  ])
+  const firstErr = [companies, profiles].find((r) => r.error)?.error
+  if (firstErr) throw new Error(`Erro ao carregar dados: ${firstErr.message}`)
+  return {
+    companies: (companies.data ?? []).map(toCompany),
+    // Fotos legadas em dataURL (base64, até vários MB) NÃO entram na carga
+    // core: são buscadas/migradas separadamente na fase pesada.
+    users: (profiles.data ?? []).map(toUser).map((u) =>
+      u.photoDataUrl?.startsWith('data:') ? { ...u, photoDataUrl: undefined } : u,
+    ),
+  }
+}
+
+/** Perfis cuja foto ainda é dataURL legado (para migração ao Storage). */
+export async function fetchLegacyPhotoUrls(): Promise<{ id: string; url: string }[]> {
+  const sb = getSupabase()
+  const { data, error } = await sb.from('profiles').select('id, photo_url').like('photo_url', 'data:%')
+  if (error) return []
+  return ((data ?? []) as { id: string; photo_url: string | null }[])
+    .filter((r) => r.photo_url)
+    .map((r) => ({ id: r.id, url: r.photo_url as string }))
+}
+
+export async function loadHeavyData(): Promise<Omit<HrData, 'companies' | 'users'>> {
+  const sb = getSupabase()
+  const [pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank, vacationHistory, dayOffs] =
     await Promise.all([
-      sb.from('companies').select('*').order('created_at'),
-      sb.from('profiles').select('*').order('name'),
       sb.from('pdis').select('*'),
       sb.from('feedbacks').select('*').order('created_at', { ascending: false }),
       sb.from('vacancies').select('*').order('opened_at', { ascending: false }),
@@ -274,7 +307,7 @@ export async function loadAllData(): Promise<HrData> {
       ),
     ])
 
-  const firstErr = [companies, profiles, pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank].find(
+  const firstErr = [pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank].find(
     (r) => r.error,
   )?.error
   if (firstErr) throw new Error(`Erro ao carregar dados: ${firstErr.message}`)
@@ -300,8 +333,6 @@ export async function loadAllData(): Promise<HrData> {
   }
 
   return {
-    companies: (companies.data ?? []).map(toCompany),
-    users: (profiles.data ?? []).map(toUser),
     pdis: (pdis.data ?? []).map(toPdi),
     feedbacks: (feedbacks.data ?? []).map(toFeedback),
     vacancies: (vacancies.data ?? []).map(toVacancy),
@@ -517,11 +548,31 @@ export async function apiUpdateOwnProfile(id: string, patch: { name?: string; em
   }
 }
 
-export async function apiUpdatePhoto(id: string, dataUrl: string | undefined): Promise<void> {
+export async function apiUpdatePhoto(id: string, photoUrl: string | undefined): Promise<void> {
   const sb = getSupabase()
-  // foto como dataURL direto no perfil (prático p/ MVP; produzir Storage depois)
-  const { error } = await sb.from('profiles').update({ photo_url: dataUrl ?? null }).eq('id', id)
+  // foto agora é uma URL curta do Supabase Storage (bucket público `avatars`),
+  // servida por CDN — o payload de dados não carrega mais a imagem.
+  const { error } = await sb.from('profiles').update({ photo_url: photoUrl ?? null }).eq('id', id)
   if (error) throw new Error(error.message)
+}
+
+/**
+ * Migração única de fotos legadas: perfis cujo photo_url ainda é um dataURL
+ * (base64, até vários MB) têm a imagem enviada ao Storage e substituída pela
+ * URL pública. Roda automaticamente após a carga de dados.
+ */
+export async function migrateLegacyPhoto(userId: string, dataUrl: string): Promise<string | null> {
+  try {
+    const blob = await (await fetch(dataUrl)).blob()
+    const { compressAvatar, uploadAvatar } = await import('./photo')
+    // também comprime fotos legadas (256px WebP) antes de subir
+    const compressed = await compressAvatar(blob)
+    const url = await uploadAvatar(userId, compressed)
+    await apiUpdatePhoto(userId, url)
+    return url
+  } catch {
+    return null
+  }
 }
 
 export async function apiUpdateSchedule(id: string, schedule: WeeklySchedule): Promise<void> {

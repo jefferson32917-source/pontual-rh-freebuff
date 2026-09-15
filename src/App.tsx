@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { Role, User } from './types'
@@ -8,17 +8,22 @@ import { useHrData } from './lib/store'
 import { ImpersonationProvider, useImpersonation } from './lib/impersonation'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-import Companies from './pages/Companies'
-import UserAdmin from './pages/UserAdmin'
-import Profile from './pages/Profile'
-import Payroll from './pages/Payroll'
-import MyPayrolls from './pages/MyPayrolls'
-import Vacations from './pages/Vacations'
-import Timesheet from './pages/Timesheet'
-import Requests from './pages/Requests'
-import Development from './pages/Development'
-import Team from './pages/Team'
+
+/**
+ * Code-splitting: cada página vira um chunk JS carregado sob demanda
+ * (lazy loading por rota). Login permanece eager por ser a primeira tela.
+ */
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Companies = lazy(() => import('./pages/Companies'))
+const UserAdmin = lazy(() => import('./pages/UserAdmin'))
+const Profile = lazy(() => import('./pages/Profile'))
+const Payroll = lazy(() => import('./pages/Payroll'))
+const MyPayrolls = lazy(() => import('./pages/MyPayrolls'))
+const Vacations = lazy(() => import('./pages/Vacations'))
+const Timesheet = lazy(() => import('./pages/Timesheet'))
+const Requests = lazy(() => import('./pages/Requests'))
+const Development = lazy(() => import('./pages/Development'))
+const Team = lazy(() => import('./pages/Team'))
 
 /** Rotas por papel — Super Admin não tem painel próprio: só administração. */
 const roleRoutes: Record<Role, string[]> = {
@@ -100,11 +105,14 @@ function AppRoutes() {
   }, [])
 
   const logout = useCallback(() => {
+    // Limpa o estado local SINCRONAMENTE (a UI sai imediatamente) e só
+    // depois de o signOut terminar re-resolve a sessão. Re-resolver antes
+    // causava o bug da "sessão fantasma": o effect lia a sessão ainda
+    // existente no storage e relogava o usuário (tela pisca e volta).
     clearSession()
-    void authLogout()
     impersonation.stop()
     setAuthUser(null)
-    setSessionTick((t) => t + 1)
+    void authLogout().then(() => setSessionTick((t) => t + 1))
   }, [impersonation])
 
   const refreshUser = useCallback(() => {
@@ -131,12 +139,43 @@ function AppRoutes() {
     return <Guard>{children}</Guard>
   }
 
-  if (!authReady) {
+  // Pré-carrega os chunks das páginas quando o browser está ocioso:
+  // a carga inicial continua leve, mas a navegação fica instantânea.
+  useEffect(() => {
+    if (!loggedUser) return
+    const prefetch = () => {
+      void import('./pages/Dashboard')
+      void import('./pages/Companies')
+      void import('./pages/UserAdmin')
+      void import('./pages/Profile')
+      void import('./pages/Payroll')
+      void import('./pages/MyPayrolls')
+      void import('./pages/Vacations')
+      void import('./pages/Timesheet')
+      void import('./pages/Requests')
+      void import('./pages/Development')
+      void import('./pages/Team')
+    }
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number
+      cancelIdleCallback?: (id: number) => void
+    }
+    const id = w.requestIdleCallback ? w.requestIdleCallback(prefetch) : window.setTimeout(prefetch, 2000)
+    return () => {
+      if (w.cancelIdleCallback) w.cancelIdleCallback(id)
+      else window.clearTimeout(id)
+    }
+  }, [loggedUser?.id])
+
+  if (!authReady || store.loading || store.heavyLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-50">
         <div className="text-center">
           <img src="/logo.svg" alt="Pontual RH Super" className="mx-auto h-10 w-auto" />
-          <p className="mt-4 text-sm text-slate-500">Carregando…</p>
+          <div className="mt-4 flex items-center justify-center gap-3 text-sm text-slate-500">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-primary-600" aria-hidden="true" />
+            Carregando…
+          </div>
         </div>
       </div>
     )
@@ -157,6 +196,16 @@ function AppRoutes() {
   }
 
   return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-slate-50">
+          <div className="flex items-center gap-3 text-sm text-slate-500">
+            <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-primary-600" aria-hidden="true" />
+            Carregando…
+          </div>
+        </div>
+      }
+    >
     <Routes>
       <Route
         path="/login"
@@ -192,6 +241,7 @@ function AppRoutes() {
       </Route>
       <Route path="*" element={<Navigate to={loggedUser ? (loggedUser.role === 'super_admin' ? '/empresas' : '/painel') : '/login'} replace />} />
     </Routes>
+    </Suspense>
   )
 }
 
