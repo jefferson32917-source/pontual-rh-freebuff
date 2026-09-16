@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { login, setSession } from '../lib/auth'
 import type { User } from '../types'
 
-export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
+export default function Login({ onLogin }: { onLogin: (user?: User) => void }) {
   const navigate = useNavigate()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')

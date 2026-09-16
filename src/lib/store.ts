@@ -108,9 +108,13 @@ export function useHrData() {
       void api
         .loadHeavyData()
         .then((heavy) => setData((d) => ({ ...d, ...heavy })))
-        .then(() => {
-          // Migração silenciosa e única de fotos legadas (dataURL -> Storage,
-          // com compressão). Depois de migrado, o perfil guarda só a URL curta.
+        .catch((e) => {
+          console.warn('[store] carga de dados pesados falhou:', e instanceof Error ? e.message : e)
+        })
+        .finally(() => {
+          setHeavyLoading(false)
+          // Migração de fotos legadas (dataURL -> Storage) roda FORA do cadeado
+          // de carga: não deve atrasar a entrada no app, só atualizar em fundo.
           void api.fetchLegacyPhotoUrls().then((legacy) => {
             for (const { id, url } of legacy) {
               void api.migrateLegacyPhoto(id, url).then((newUrl) => {
@@ -124,10 +128,6 @@ export function useHrData() {
             }
           })
         })
-        .catch((e) => {
-          console.warn('[store] carga de dados pesados falhou:', e instanceof Error ? e.message : e)
-        })
-        .finally(() => setHeavyLoading(false))
     } catch (e) {
       setLoading(false)
       setError(e instanceof Error ? e.message : 'Falha ao carregar dados.')

@@ -41,16 +41,34 @@ function AppRoutes() {
   const [authReady, setAuthReady] = useState(false)
   const [authUser, setAuthUser] = useState<User | null>(null)
 
-  // resolve a sessão real do Supabase Auth na carga (e a cada refreshUser)
-  // localGetSession evita uma viagem de rede quando não há sessão salva
+  // refs "latest value" para ler estado dentro de effects sem depender deles
+  const storeRef = useRef(store)
+  storeRef.current = store
+  const authUserRef = useRef<User | null>(null)
+  authUserRef.current = authUser
+  const lastLoadedUserId = useRef<string | null>(null)
+
+  // resolve a sessão real do Supabase Auth na carga (e a cada refreshUser).
+  // PERFIL DE PERFORMANCE: a resolução da sessão e a carga de dados rodam EM
+  // PARALELO (a sessão já vive no storage e o cliente Supabase a usa), e o
+  // login recém-concluído NÃO re-consulta a rede — o usuário já chega pronto.
   useEffect(() => {
     let alive = true
-    const local = getSupabase().auth.getSession()
-    void local.then(({ data: localData }: { data: { session: unknown } }) => {
+    void getSupabase().auth.getSession().then(({ data: localData }: { data: { session: unknown } }) => {
       if (!alive) return
       if (!localData.session) {
         // sem sessão: nem chama a rede
         setAuthUser(null)
+        setAuthReady(true)
+        return
+      }
+      // dispara a carga de dados já, em paralelo com a resolução do perfil
+      if (lastLoadedUserId.current === null) {
+        lastLoadedUserId.current = 'pending'
+        void storeRef.current.reload()
+      }
+      // login recém-concluído já entregou o usuário — sem viagem de rede extra
+      if (authUserRef.current) {
         setAuthReady(true)
         return
       }
@@ -65,14 +83,14 @@ function AppRoutes() {
     }
   }, [sessionTick])
 
-  // ao autenticar, recarrega os dados COM a sessão ativa (RLS passa a aplicar).
-  // reload() já roda no mount; aqui só reexecuta se o usuário mudou de verdade.
-  const lastLoadedUserId = useRef<string | null>(null)
+  // ao autenticar, carrega os dados COM a sessão ativa (RLS passa a aplicar).
+  // Se a carga já foi disparada no boot paralelo ('pending'), não duplica.
   useEffect(() => {
-    if (authUser && lastLoadedUserId.current !== authUser.id) {
-      lastLoadedUserId.current = authUser.id
-      void store.reload()
-    }
+    if (!authUser) return
+    if (lastLoadedUserId.current === authUser.id) return
+    const wasPending = lastLoadedUserId.current === 'pending'
+    lastLoadedUserId.current = authUser.id
+    if (!wasPending) void storeRef.current.reload()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authUser?.id])
 
@@ -112,10 +130,14 @@ function AppRoutes() {
     clearSession()
     impersonation.stop()
     setAuthUser(null)
+    lastLoadedUserId.current = null // próximo login recarrega os dados
     void authLogout().then(() => setSessionTick((t) => t + 1))
   }, [impersonation])
 
-  const refreshUser = useCallback(() => {
+  const refreshUser = useCallback((u?: User) => {
+    // chamado pelo Login com o usuário já autenticado: resolve a sessão
+    // localmente, sem nova viagem de rede (getAuthUser)
+    if (u) setAuthUser(u)
     setSessionTick((t) => t + 1)
   }, [])
 
@@ -167,11 +189,22 @@ function AppRoutes() {
     }
   }, [loggedUser?.id])
 
-  // Tela de carga completa: só bloqueia enquanto HÁ sessão (o carregamento
-  // de dados só acontece para usuário logado). Sem sessão, o login deve
-  // aparecer imediatamente — nunca travar no "Carregando…".
+  // Tela de carga: bloqueia até o CORE (empresas + usuários) chegar. Os dados
+  // pesados têm uma tolerância de 2s — se demorarem mais, o app entra mesmo
+  // assim e as listas preenchem em segundo plano (nunca travar >3s).
+  // Sem sessão, o login aparece imediatamente.
+  const [heavyGraceOver, setHeavyGraceOver] = useState(false)
+  useEffect(() => {
+    if (!store.heavyLoading) {
+      setHeavyGraceOver(false)
+      return
+    }
+    const t = window.setTimeout(() => setHeavyGraceOver(true), 2000)
+    return () => window.clearTimeout(t)
+  }, [store.heavyLoading])
+
   const booting =
-    !authReady || (!!authUser && (store.loading || store.heavyLoading))
+    !authReady || (!!authUser && (store.loading || (store.heavyLoading && !heavyGraceOver)))
 
   if (booting) {
     return (
