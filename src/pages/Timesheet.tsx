@@ -36,6 +36,8 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
   const [dayOffError, setDayOffError] = useState<string | null>(null)
   const [dayOffBusy, setDayOffBusy] = useState(false)
   const [geoBusy, setGeoBusy] = useState(false)
+  /** Colaborador em visualização (gestor): null = o próprio usuário. */
+  const [viewingId, setViewingId] = useState<string | null>(null)
   const today = dayKey(now)
 
   const geo = useGeoConsent(user.id)
@@ -55,8 +57,15 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
     [data.users, user, isManager],
   )
 
+  /** Pessoa cujo espelho está sendo exibido (o próprio ou o colaborador selecionado). */
+  const subject: User =
+    (viewingId && viewingId !== user.id
+      ? data.users.find((u) => u.id === viewingId && teamIds.includes(u.id))
+      : null) ?? user
+  const isViewingOther = subject.id !== user.id
+
   const todayEntries = data.timeEntries.filter(
-    (t) => t.employeeId === user.id && localDayKey(t.occurredAt) === today,
+    (t) => t.employeeId === subject.id && localDayKey(t.occurredAt) === today,
   )
   const nextType: TimeEntryType = entryOrder[todayEntries.length % entryOrder.length] ?? 'entrada'
   const hoursToday = workedHours(todayEntries)
@@ -75,7 +84,7 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
       const d = new Date(now)
       d.setDate(d.getDate() - i)
       const key = dayKey(d)
-      const entries = data.timeEntries.filter((t) => t.employeeId === user.id && localDayKey(t.occurredAt) === key)
+      const entries = data.timeEntries.filter((t) => t.employeeId === subject.id && localDayKey(t.occurredAt) === key)
       const weekday = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'][d.getDay()] as keyof typeof weekDayLabels
       days.push({
         key,
@@ -83,11 +92,11 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
         hours: workedHours(entries),
         punches: dayPunches(entries),
         missing: missingPunches(entries),
-        isWorkday: !!user.weeklySchedule[weekday],
+        isWorkday: !!subject.weeklySchedule[weekday],
       })
     }
     return days
-  }, [data.timeEntries, user, now, range])
+  }, [data.timeEntries, subject, now, range])
 
   const inconsistentDays = mirror.filter((d) => d.missing > 0 && (d.isWorkday || d.hours > 0)).length
   const periodTotal = mirror.reduce((acc, d) => acc + d.hours, 0)
@@ -96,10 +105,10 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
   const dayOffByKey = useMemo(() => {
     const map = new Map<string, { status: string; reason: string; id: string }>()
     for (const o of data.dayOffs) {
-      if (o.employeeId === user.id) map.set(o.day, { status: o.status, reason: o.reason, id: o.id })
+      if (o.employeeId === subject.id) map.set(o.day, { status: o.status, reason: o.reason, id: o.id })
     }
     return map
-  }, [data.dayOffs, user.id])
+  }, [data.dayOffs, subject.id])
 
   // folgas pendentes da equipe (para o gestor aprovar)
   const pendingDayOffs = useMemo(() => {
@@ -157,11 +166,45 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
       .finally(() => setDayOffBusy(false))
   }
 
+  const canEditSubject = !isViewingOther // só edita o próprio espelho
+
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-slate-900">Ponto</h1>
-        <p className="mt-1 text-sm text-slate-500">Bata o ponto, acompanhe seu espelho e corrija dias com batidas faltantes.</p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Ponto</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {isViewingOther
+              ? `Visualizando o espelho de ${subject.name} (somente leitura).`
+              : 'Bata o ponto, acompanhe seu espelho e corrija dias com batidas faltantes.'}
+          </p>
+        </div>
+        {isManager && (
+          <div className="min-w-[240px]">
+            <label htmlFor="ts-subject" className="mb-1 block text-xs font-medium text-slate-500">
+              Espelho de ponto de
+            </label>
+            <select
+              id="ts-subject"
+              className="input py-2 text-sm"
+              value={subject.id}
+              onChange={(e) => {
+                setViewingId(e.target.value === user.id ? null : e.target.value)
+                setEditingDay(null)
+                setDayOffDay(null)
+              }}
+            >
+              <option value={user.id}>Eu — {user.name}</option>
+              {data.users
+                .filter((u) => teamIds.includes(u.id) && u.id !== user.id)
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
       </header>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -181,7 +224,7 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        <SectionCard title="Relógio de ponto">
+        <SectionCard title={isViewingOther ? `Batidas de hoje — ${subject.name.split(' ')[0]}` : 'Relógio de ponto'}>
           <div className="text-center">
             <p className="text-4xl font-bold tabular-nums text-slate-900">{formatTime(now.toISOString())}</p>
             <p className="mt-1 text-xs text-slate-500">
@@ -196,20 +239,28 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                 {geo.error ?? 'Para bater o ponto, é obrigatório permitir o compartilhamento da sua localização. Ela fica visível apenas para gestores/RH.'}
               </p>
             )}
-            <button
-              type="button"
-              className="btn-primary mt-5 w-full py-3 text-base"
-              onClick={punch}
-              disabled={!canPunch || geoBusy}
-            >
-              {geoBusy
-                ? 'Obtendo localização…'
-                : canPunch
-                  ? geo.status === 'granted'
-                    ? `Registrar ${timeEntryLabels[nextType]}`
-                    : `Permitir local e registrar ${timeEntryLabels[nextType]}`
-                  : 'Ciclo do dia completo ✓'}
-            </button>
+            {isViewingOther ? (
+              <p className="mt-5 rounded-xl bg-slate-50 px-3 py-2.5 text-xs font-medium text-slate-500">
+                {todayEntries.length === 0
+                  ? 'Nenhuma batida hoje para este colaborador.'
+                  : `${todayEntries.length} batida(s) registrada(s) hoje.`}
+              </p>
+            ) : (
+              <button
+                type="button"
+                className="btn-primary mt-5 w-full py-3 text-base"
+                onClick={punch}
+                disabled={!canPunch || geoBusy}
+              >
+                {geoBusy
+                  ? 'Obtendo localização…'
+                  : canPunch
+                    ? geo.status === 'granted'
+                      ? `Registrar ${timeEntryLabels[nextType]}`
+                      : `Permitir local e registrar ${timeEntryLabels[nextType]}`
+                    : 'Ciclo do dia completo ✓'}
+              </button>
+            )}
             {todayEntries.length > 0 && (
               <ul className="mt-5 space-y-2 text-left">
                 {[...todayEntries]
@@ -221,14 +272,16 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                         <span className="text-sm font-semibold tabular-nums text-slate-900">
                           {formatTime(entry.occurredAt)}
                         </span>
-                        <button
-                          type="button"
-                          className="text-xs font-semibold text-rose-500 hover:text-rose-700"
-                          onClick={() => store.deleteTimeEntry(entry.id)}
-                          title="Estornar batida"
-                        >
-                          estornar
-                        </button>
+                        {canEditSubject && (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-rose-500 hover:text-rose-700"
+                            onClick={() => store.deleteTimeEntry(entry.id)}
+                            title="Estornar batida"
+                          >
+                            estornar
+                          </button>
+                        )}
                       </span>
                     </li>
                   ))}
@@ -286,7 +339,7 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                           </button>
                         </div>
                       </div>
-                    ) : editingDay === day.key ? (
+                    ) : editingDay === day.key && canEditSubject ? (
                       <DayEditor
                         day={day}
                         entries={editingEntries}
@@ -331,17 +384,21 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                             )
                           })()}
                           <span className="ml-1 text-sm font-semibold tabular-nums text-slate-900">{day.hours}h</span>
-                          <button
-                            type="button"
-                            className="btn-secondary px-2.5 py-1 text-[11px]"
-                            onClick={() => setDayOffDay(dayOffDay === day.key ? null : day.key)}
-                            title="Marcar este dia como folga (sem batidas), sujeito à aprovação do gestor"
-                          >
-                            🌴 Folga
-                          </button>
-                          <button type="button" className="btn-secondary px-2.5 py-1 text-[11px]" onClick={() => setEditingDay(day.key)}>
-                            ✏️ Editar
-                          </button>
+                          {canEditSubject && (
+                            <>
+                              <button
+                                type="button"
+                                className="btn-secondary px-2.5 py-1 text-[11px]"
+                                onClick={() => setDayOffDay(dayOffDay === day.key ? null : day.key)}
+                                title="Marcar este dia como folga (sem batidas), sujeito à aprovação do gestor"
+                              >
+                                🌴 Folga
+                              </button>
+                              <button type="button" className="btn-secondary px-2.5 py-1 text-[11px]" onClick={() => setEditingDay(day.key)}>
+                                ✏️ Editar
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     )}

@@ -136,6 +136,54 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
     setReviewNote('')
   }
 
+  /**
+   * Requisição PRÓPRIA de gestor/SA: já tem credencial de aprovação, então
+   * o atestado/folga entra direto como "aprovado" — sem auto-aprovar depois.
+   */
+  async function handleOwnSubmit(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    const safePeriod = period.trim().slice(0, 80)
+    const safeJustification = justification.trim().slice(0, 280)
+    if (!safePeriod || !safeJustification) {
+      setError('Preencha o período e a justificativa da solicitação.')
+      return
+    }
+    if (type === 'atestado' && attachments.length === 0) {
+      setError('Solicitações de atestado exigem o documento anexado.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await store.createRequest(
+        {
+          id: `r${Date.now()}`,
+          employeeId: user.id,
+          type,
+          period: safePeriod,
+          justification: safeJustification,
+          status: 'aprovado', // credencial própria: sem fluxo de aprovação
+          createdAt: new Date().toISOString(),
+          attachments,
+        },
+        attachments.map((a) => ({
+          fileName: a.fileName,
+          mimeType: a.mimeType,
+          sizeBytes: a.sizeBytes,
+          file: pendingFiles.get(a.id),
+        })),
+      )
+      setPeriod('')
+      setJustification('')
+      setAttachments([])
+      setPendingFiles(new Map())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Falha ao enviar a solicitação.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <header>
@@ -148,9 +196,8 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
       </header>
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {!canApprove && (
-          <SectionCard title="Nova requisição">
-            <form onSubmit={handleSubmit} className="space-y-4">
+        <SectionCard title={canApprove ? 'Registrar meu atestado / folga' : 'Nova requisição'}>
+            <form onSubmit={canApprove ? handleOwnSubmit : handleSubmit} className="space-y-4">
               <div>
                 <label htmlFor="req-type" className="mb-1.5 block text-sm font-medium text-slate-700">
                   Tipo
@@ -245,11 +292,15 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
                 </p>
               )}
               <button type="submit" className="btn-primary w-full" disabled={submitting}>
-                {submitting ? 'Enviando…' : 'Enviar requisição'}
+                {submitting ? 'Enviando…' : canApprove ? 'Registrar (entra como aprovado)' : 'Enviar requisição'}
               </button>
+              {canApprove && (
+                <p className="text-center text-[11px] text-slate-400">
+                  Como gestor, seu registro entra direto como <strong>aprovado</strong> — sem fluxo de aprovação.
+                </p>
+              )}
             </form>
           </SectionCard>
-        )}
 
         <SectionCard
           title={canApprove ? 'Requisições da equipe' : 'Minhas requisições'}
