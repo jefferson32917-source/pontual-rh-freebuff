@@ -76,10 +76,13 @@ export function syncAvatarCache(users: User[]): void {
   let changed = false
   const validIds = new Set<string>()
   for (const u of users) {
-    if (!u.photoDataUrl?.startsWith('http')) continue
+    const url = u.photoDataUrl
+    // aceita URL do Storage E dataURL pequeno (fallback inline); ignora
+    // dataURL gigante legado (> 150 KB) para não estourar a quota
+    if (!url || (url.startsWith('data:') && url.length > 150_000)) continue
     validIds.add(u.id)
-    if (map[u.id] !== u.photoDataUrl) {
-      map[u.id] = u.photoDataUrl
+    if (map[u.id] !== url) {
+      map[u.id] = url
       changed = true
     }
   }

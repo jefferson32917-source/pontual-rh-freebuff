@@ -296,10 +296,13 @@ export async function loadCoreData(): Promise<Pick<HrData, 'companies' | 'users'
   if (firstErr) throw new Error(`Erro ao carregar dados: ${firstErr.message}`)
   const result = {
     companies: (companies.data ?? []).map(toCompany),
-    // Fotos legadas em dataURL (base64, até vários MB) NÃO entram na carga
-    // core: são buscadas/migradas separadamente na fase pesada.
+    // Fotos em URL do Storage passam sempre. DataURLs SÓ são cortados se
+    // forem legados gigantes (> 150 KB): os pequenos (fallback inline,
+    // ~10–30 KB) carregam normalmente — a foto nunca deixa de aparecer.
     users: (profiles.data ?? []).map(toUser).map((u) =>
-      u.photoDataUrl?.startsWith('data:') ? { ...u, photoDataUrl: undefined } : u,
+      u.photoDataUrl?.startsWith('data:') && u.photoDataUrl.length > 150_000
+        ? { ...u, photoDataUrl: undefined }
+        : u,
     ),
   }
   writeCoreCache(result)

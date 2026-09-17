@@ -354,7 +354,15 @@ export function useHrData() {
     void api.apiAdminUpdateUser(userId, { password: newPassword }).catch(() => void reload())
   }, [reload])
 
-  const updatePhoto = useCallback((userId: string, blob: Blob | undefined) => {
+  /**
+   * Salva a foto do perfil. Retorna Promise para a página dar feedback real
+   * (sucesso/erro) em vez de otimismo cego. Estratégia em duas camadas:
+   * 1. Upload ao Storage (bucket `avatars`): URL curta cacheável.
+   * 2. FALLBACK: se o Storage falhar (policies ausentes, rede…), grava a
+   *    própria imagem comprimida (~10–30 KB) inline em `profiles.photo_url`
+   *    — a foto nunca se perde por problema de Storage.
+   */
+  const updatePhoto = useCallback((userId: string, blob: Blob | undefined): Promise<void> => {
     if (!blob) {
       // remover foto: limpa perfil e Storage
       setData((d) => ({
@@ -363,9 +371,9 @@ export function useHrData() {
       }))
       void api.apiUpdatePhoto(userId, undefined).catch(() => void reload())
       void import('./photo').then(({ removeAvatar }) => removeAvatar(userId)).catch(() => {})
-      return
+      return Promise.resolve()
     }
-    void import('./photo')
+    return import('./photo')
       .then(({ uploadAvatar }) => uploadAvatar(userId, blob))
       .then((url) => {
         setData((d) => ({
@@ -374,7 +382,27 @@ export function useHrData() {
         }))
         return api.apiUpdatePhoto(userId, url)
       })
-      .catch(() => void reload())
+      .catch(async (storageErr) => {
+        // FALLBACK: Storage indisponível -> salva inline no banco (dataURL pequeno)
+        console.warn('[store] upload ao Storage falhou, salvando foto inline no banco:', storageErr instanceof Error ? storageErr.message : storageErr)
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onload = () => resolve(reader.result as string)
+          reader.onerror = () => reject(new Error('Falha ao ler a imagem.'))
+          reader.readAsDataURL(blob)
+        })
+        if (dataUrl.length > 150_000) {
+          throw new Error(
+            'Falha no upload da foto (Storage indisponível) e a imagem é grande demais para o fallback. ' +
+              'Verifique as policies do bucket avatars.',
+          )
+        }
+        setData((d) => ({
+          ...d,
+          users: d.users.map((u) => (u.id === userId ? { ...u, photoDataUrl: dataUrl } : u)),
+        }))
+        await api.apiUpdatePhoto(userId, dataUrl)
+      })
   }, [reload])
 
   // ============ Feedback / requisições / férias / ponto ============

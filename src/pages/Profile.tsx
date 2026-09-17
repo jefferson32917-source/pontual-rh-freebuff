@@ -43,11 +43,14 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
       // Compressão no cliente: 256x256 WebP (~10–30 KB) antes de subir.
       const { compressAvatar } = await import('../lib/photo')
       const blob = await compressAvatar(file)
-      store.updatePhoto(current.id, blob)
+      // await: a UI só mostra sucesso quando a foto REALMENTE foi persistida
+      // (Storage ou fallback inline no banco). Erro aparece na tela.
+      await store.updatePhoto(current.id, blob)
       setMsg({ kind: 'ok', text: 'Foto atualizada!' })
       onUserUpdated()
     } catch (err) {
-      setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Falha ao processar a foto.' })
+      console.error('[profile] falha ao salvar a foto:', err)
+      setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Falha ao salvar a foto. Tente novamente.' })
     } finally {
       if (fileRef.current) fileRef.current.value = ''
     }
