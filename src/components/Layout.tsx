@@ -1,8 +1,10 @@
+import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { Role, User } from '../types'
 import { roleLabels } from '../lib/format'
 import { Avatar } from './ui'
 import { useImpersonation } from '../lib/impersonation'
+import { preloadAvatars } from '../lib/avatarCache'
 
 interface NavItem {
   to: string
@@ -58,6 +60,15 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
   if (!user) return <Outlet />
 
   const items = navFor(user.role)
+
+  // Preload das fotos (idle): evita o flash "iniciais -> foto" ao abrir listas.
+  // Prioriza o próprio usuário; as demais URLs vêm do cache (já hidratado
+  // pela sincronização pós-carga do core).
+  useEffect(() => {
+    const urls = user.photoDataUrl?.startsWith('http') ? [user.photoDataUrl] : []
+    const cancel = preloadAvatars(urls)
+    return () => cancel?.()
+  }, [user.id, user.photoDataUrl])
 
   function handleLogout() {
     onLogout()
@@ -128,7 +139,7 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
               </p>
             </div>
             <NavLink to="/perfil" aria-label="Meu perfil">
-              <Avatar name={user.name} color={user.avatarColor} size={36} photoUrl={user.photoDataUrl} />
+              <Avatar name={user.name} color={user.avatarColor} size={36} photoUrl={user.photoDataUrl} userId={user.id} />
             </NavLink>
             <button
               type="button"

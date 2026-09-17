@@ -247,13 +247,45 @@ export interface HrData {
   hourBank: HourBankAdjustment[]
 }
 
-/**
- * Carregamento em fases (lazy loading de dados):
- * - loadCoreData(): empresas + perfis — o mínimo para autenticar, rotear
- *   e desenhar o shell do app. Rápido por natureza.
- * - loadHeavyData(): tudo o resto (ponto, folha, férias, requisições…).
- *   Carrega em segundo plano enquanto o usuário já navega.
- */
+/** Cache do core em sessionStorage: refresh da página abre instantâneo. */
+const CORE_CACHE_KEY = 'pontual.core.v1'
+const CORE_CACHE_TTL = 5 * 60_000
+
+interface CoreCache {
+  at: number
+  companies: Company[]
+  users: User[]
+}
+
+/** Lê o cache do core (stale-while-revalidate). null se vazio/expirado. */
+export function readCoreCache(): Pick<HrData, 'companies' | 'users'> | null {
+  try {
+    const raw = sessionStorage.getItem(CORE_CACHE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as CoreCache
+    if (Date.now() - parsed.at > CORE_CACHE_TTL) return null
+    return { companies: parsed.companies, users: parsed.users }
+  } catch {
+    return null
+  }
+}
+
+function writeCoreCache(data: Pick<HrData, 'companies' | 'users'>): void {
+  try {
+    const payload: CoreCache = { at: Date.now(), companies: data.companies, users: data.users }
+    sessionStorage.setItem(CORE_CACHE_KEY, JSON.stringify(payload))
+  } catch {
+    // quota: cache é best-effort
+  }
+}
+
+export function clearCoreCache(): void {
+  try {
+    sessionStorage.removeItem(CORE_CACHE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
 export async function loadCoreData(): Promise<Pick<HrData, 'companies' | 'users'>> {
   const sb = getSupabase()
   const [companies, profiles] = await Promise.all([
@@ -262,7 +294,7 @@ export async function loadCoreData(): Promise<Pick<HrData, 'companies' | 'users'
   ])
   const firstErr = [companies, profiles].find((r) => r.error)?.error
   if (firstErr) throw new Error(`Erro ao carregar dados: ${firstErr.message}`)
-  return {
+  const result = {
     companies: (companies.data ?? []).map(toCompany),
     // Fotos legadas em dataURL (base64, até vários MB) NÃO entram na carga
     // core: são buscadas/migradas separadamente na fase pesada.
@@ -270,6 +302,8 @@ export async function loadCoreData(): Promise<Pick<HrData, 'companies' | 'users'
       u.photoDataUrl?.startsWith('data:') ? { ...u, photoDataUrl: undefined } : u,
     ),
   }
+  writeCoreCache(result)
+  return result
 }
 
 /** Perfis cuja foto ainda é dataURL legado (para migração ao Storage). */
@@ -282,7 +316,93 @@ export async function fetchLegacyPhotoUrls(): Promise<{ id: string; url: string 
     .map((r) => ({ id: r.id, url: r.photo_url as string }))
 }
 
+/**
+ * Dados pesados em UMA viagem de rede via RPC `load_heavy_data` (ver
+ * supabase/migration_v4_load_heavy_data_rpc.sql). Se a RPC ainda não foi
+ * aplicada ao banco, cai transparentemente para as queries paralelas.
+ */
 export async function loadHeavyData(): Promise<Omit<HrData, 'companies' | 'users'>> {
+  const sb = getSupabase()
+  try {
+    const { data, error } = await sb.rpc('load_heavy_data')
+    if (!error && data && typeof data === 'object') {
+      const r = (Array.isArray(data) ? data[0] : data) as Record<string, unknown>
+      if (r && typeof r === 'object') return mapHeavyRows(r)
+    }
+    if (error && !/Could not find the function|schema cache|404/i.test(error.message)) {
+      // RPC existe mas falhou de verdade (RLS, permissão…): propaga
+      throw new Error(error.message)
+    }
+    // função não existe ainda: fallback
+  } catch {
+    // fallback abaixo
+  }
+  return loadHeavyDataParallel()
+}
+
+function mapHeavyRows(r: Record<string, unknown>): Omit<HrData, 'companies' | 'users'> {
+  const rows = (k: string): any[] => (Array.isArray(r[k]) ? (r[k] as any[]) : [])
+  const attachMap = new Map<string, RequestAttachment[]>()
+  for (const a of rows('request_attachments')) {
+    const list = attachMap.get(a.request_id) ?? []
+    list.push({
+      id: a.id,
+      fileName: a.file_name,
+      mimeType: a.mime_type,
+      sizeBytes: Number(a.size_bytes),
+      storagePath: a.storage_path,
+    } as RequestAttachment & { storagePath?: string })
+    attachMap.set(a.request_id, list)
+  }
+
+  const tasksByUser: Record<string, TaskItem[]> = {}
+  for (const t of rows('tasks')) {
+    const list = tasksByUser[t.user_id] ?? []
+    list.push({ id: t.id, label: t.label, done: t.done, due: t.due ?? undefined })
+    tasksByUser[t.user_id] = list
+  }
+
+  return {
+    pdis: rows('pdis').map(toPdi),
+    feedbacks: rows('feedbacks').map(toFeedback),
+    vacancies: rows('vacancies').map(toVacancy),
+    requests: rows('requests').map((row) => toRequest(row, attachMap.get(row.id) ?? [])),
+    vacations: rows('vacations').map(toVacation),
+    vacationHistory: rows('vacation_history').map((row) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      periodStart: row.period_start,
+      periodEnd: row.period_end,
+      days: row.days,
+      kind: row.kind,
+      note: row.note ?? undefined,
+      admissionDate: row.admission_date ?? undefined,
+      createdAt: row.created_at,
+    })),
+    dayOffs: rows('day_offs').map((row) => ({
+      id: row.id,
+      employeeId: row.employee_id,
+      day: row.day,
+      reason: row.reason,
+      status: row.status,
+      createdAt: row.created_at,
+    })),
+    timeEntries: rows('time_entries').map(toTimeEntry),
+    tasks: tasksByUser,
+    payrolls: rows('payrolls').map(toPayroll),
+    hourBank: rows('hour_bank').map((row: any): HourBankAdjustment => ({
+      id: row.id,
+      userId: row.user_id,
+      hours: Number(row.hours),
+      reason: row.reason,
+      payrollId: row.payroll_id ?? '',
+      createdAt: row.created_at,
+    })),
+  }
+}
+
+/** Fallback: as 12 queries em paralelo (usado até a RPC ser aplicada). */
+async function loadHeavyDataParallel(): Promise<Omit<HrData, 'companies' | 'users'>> {
   const sb = getSupabase()
   const [pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank, vacationHistory, dayOffs] =
     await Promise.all([

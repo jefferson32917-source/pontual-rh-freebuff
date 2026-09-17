@@ -19,6 +19,8 @@ import type {
 import * as api from './api'
 import { nextMatricula, pickAvatarColor } from './matricula'
 import { localDayKey, localTodayKey } from './format'
+import { markStart, markEnd } from './perf'
+import { syncAvatarCache, logAvatarChainDiagnostics } from './avatarCache'
 
 /**
  * Camada de dados do app — agora com persistência real no Supabase.
@@ -99,15 +101,32 @@ export function useHrData() {
     setLoading(true)
     setHeavyLoading(true)
     try {
+      // STALE-WHILE-REVALIDATE: hidrata do cache do sessionStorage na hora
+      // (UI abre instantânea), e revalida contra o banco em paralelo.
+      const cached = api.readCoreCache()
+      if (cached && cached.users.length >= 0) {
+        setData((d) => ({ ...d, ...cached }))
+        setLoading(false)
+        // revalidação em fundo (a rede continua abaixo)
+      }
       // Fase 1: core (empresas + usuários) — abre o app imediatamente.
+      markStart('core')
       const core = await api.loadCoreData()
+      markEnd('core', 'core', cached ? '— revalidado do cache' : '')
       setData((d) => ({ ...d, ...core }))
       setLoading(false)
+      // sincroniza o cache de avatares (SWR) e loga o estado das fotos
+      syncAvatarCache(core.users)
+      logAvatarChainDiagnostics(core.users)
       // Fase 2: tabelas pesadas em segundo plano. Falha aqui NÃO derruba
       // o app: o usuário já navega e pode tentar recarregar depois.
+      markStart('heavy')
       void api
         .loadHeavyData()
-        .then((heavy) => setData((d) => ({ ...d, ...heavy })))
+        .then((heavy) => {
+          markEnd('heavy', 'heavy')
+          setData((d) => ({ ...d, ...heavy }))
+        })
         .catch((e) => {
           console.warn('[store] carga de dados pesados falhou:', e instanceof Error ? e.message : e)
         })

@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import type { Role, User } from './types'
 import { getAuthUser, clearSession, getSession, setSession, logout as authLogout } from './lib/auth'
+import { clearCoreCache } from './lib/api'
+import { markStart, markEnd } from './lib/perf'
 import { getSupabase } from './lib/supabase'
 import { useHrData } from './lib/store'
 import { ImpersonationProvider, useImpersonation } from './lib/impersonation'
@@ -36,6 +38,13 @@ function AppRoutes() {
   const store = useHrData()
   const { data } = store
   const impersonation = useImpersonation()
+
+  // marca o início do boot para a instrumentação de performance
+  const bootMarked = useRef(false)
+  if (!bootMarked.current) {
+    bootMarked.current = true
+    markStart('boot')
+  }
 
   const [sessionTick, setSessionTick] = useState(0)
   const [authReady, setAuthReady] = useState(false)
@@ -131,6 +140,7 @@ function AppRoutes() {
     impersonation.stop()
     setAuthUser(null)
     lastLoadedUserId.current = null // próximo login recarrega os dados
+    clearCoreCache() // core não deve vazar entre contas
     void authLogout().then(() => setSessionTick((t) => t + 1))
   }, [impersonation])
 
@@ -205,6 +215,15 @@ function AppRoutes() {
 
   const booting =
     !authReady || (!!authUser && (store.loading || (store.heavyLoading && !heavyGraceOver)))
+
+  // registra o tempo total do boot (do mount até a liberação da UI)
+  const bootLogged = useRef(false)
+  useEffect(() => {
+    if (!booting && !bootLogged.current) {
+      bootLogged.current = true
+      markEnd('boot', 'boot', '— UI liberada')
+    }
+  }, [booting])
 
   if (booting) {
     return (

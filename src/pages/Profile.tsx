@@ -113,7 +113,7 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
       <div className="grid gap-6 lg:grid-cols-3">
         <SectionCard title="Identidade">
           <div className="flex flex-col items-center text-center">
-            <Avatar name={current.name} color={current.avatarColor} size={96} photoUrl={current.photoDataUrl} />
+            <Avatar name={current.name} color={current.avatarColor} size={96} photoUrl={current.photoDataUrl} userId={current.id} />
             <p className="mt-3 text-base font-semibold text-slate-900">{current.name}</p>
             {current.matricula && (
               <p className="mt-0.5 font-mono text-sm text-primary-700">{current.matricula}</p>

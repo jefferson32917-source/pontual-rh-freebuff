@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, setSession } from '../lib/auth'
+import { markStart, markEnd } from '../lib/perf'
 import type { User } from '../types'
 
 export default function Login({ onLogin }: { onLogin: (user?: User) => void }) {
@@ -14,7 +15,9 @@ export default function Login({ onLogin }: { onLogin: (user?: User) => void }) {
   async function authenticate(identifier: string, password: string) {
     setError(null)
     setLoading(true)
+    markStart('login')
     const result = await login(identifier, password)
+    markEnd('login', 'login')
     setLoading(false)
     if (result.ok) {
       setSession({ userId: result.user.id, role: result.user.role, issuedAt: new Date().toISOString() })

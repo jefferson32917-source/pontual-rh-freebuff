@@ -61,7 +61,7 @@ export default function GestorDashboard({ user, store }: { user: User; store: Hr
               ).length
               return (
                 <li key={member.id} className="flex items-center gap-3 rounded-xl border border-slate-100 p-3.5">
-                  <Avatar name={member.name} color={member.avatarColor} photoUrl={member.photoDataUrl} />
+                  <Avatar name={member.name} color={member.avatarColor} photoUrl={member.photoDataUrl} userId={member.id} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-900">{member.name}</p>
                     <p className="truncate text-xs text-slate-500">{member.jobTitle}</p>

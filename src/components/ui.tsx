@@ -1,14 +1,45 @@
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { initials } from '../lib/format'
+import { getCachedAvatar } from '../lib/avatarCache'
 
-export function Avatar({ name, color, size = 40, photoUrl }: { name: string; color: string; size?: number; photoUrl?: string }) {
-  if (photoUrl) {
+/**
+ * Avatar com stale-while-revalidate:
+ * 1. Tenta o cache local (síncrono) — foto aparece imediatamente, sem rede.
+ * 2. Se o prop photoUrl chegar depois (dados revalidando), atualiza por cima.
+ * 3. Se a imagem falhar ao carregar (URL expirada, 404), cai para as
+ *    iniciais — fallback real, nunca um <img> quebrado.
+ */
+export function Avatar({ name, color, size = 40, photoUrl, userId }: { name: string; color: string; size?: number; photoUrl?: string; userId?: string }) {
+  // estado inicial: prop > cache local (leitura síncrona, custo ~0ms)
+  const cacheKey = userId ?? name
+  const [resolved, setResolved] = useState<string | undefined>(() => photoUrl ?? getCachedAvatar(cacheKey))
+  const [failed, setFailed] = useState(false)
+
+  // re-resolve quando o prop muda (dados do banco chegando/atualizando)
+  const [lastKey, setLastKey] = useState<string | null>(null)
+  if ((photoUrl ?? null) !== (lastKey ?? null)) {
+    setLastKey(photoUrl ?? null)
+    setResolved(photoUrl ?? undefined)
+    setFailed(false)
+  }
+
+  // se não veio no prop, consulta o cache uma única vez (leve, já memoizado no módulo)
+  useEffect(() => {
+    if (!resolved && !failed) {
+      const fromCache = getCachedAvatar(cacheKey)
+      if (fromCache) setResolved(fromCache)
+    }
+  }, [resolved, failed, cacheKey])
+
+  if (resolved && !failed) {
     return (
       <img
-        src={photoUrl}
+        src={resolved}
         alt={`Foto de ${name}`}
         className="shrink-0 rounded-full object-cover"
         style={{ width: size, height: size }}
+        onError={() => setFailed(true)}
       />
     )
   }

@@ -95,7 +95,7 @@ export default function Team({ user, store }: { user: User; store: HrStore }) {
             const hoursToday = workedHours(todayEntries.filter((t) => t.employeeId === person.id))
             return (
               <li key={person.id} className="flex flex-wrap items-center gap-4 py-4">
-                <Avatar name={person.name} color={person.avatarColor} size={44} photoUrl={person.photoDataUrl} />
+                <Avatar name={person.name} color={person.avatarColor} size={44} photoUrl={person.photoDataUrl} userId={person.id} />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold text-slate-900">
                     {person.name}
