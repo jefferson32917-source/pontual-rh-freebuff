@@ -8,6 +8,7 @@ export const seedCompanies: Company[] = [
     cnpj: '12.345.678/0001-90',
     createdAt: '2024-01-15T09:00:00Z',
     active: true,
+    payrollEnabled: true,
   },
   {
     id: 'c2',
@@ -16,6 +17,7 @@ export const seedCompanies: Company[] = [
     cnpj: '98.765.432/0001-10',
     createdAt: '2025-03-20T14:00:00Z',
     active: true,
+    payrollEnabled: true,
   },
 ]
 
@@ -39,6 +41,8 @@ export const seedUsers: User[] = [
     dependents: 0,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
   // ——— Silva Construções (SC) ———
   {
@@ -60,6 +64,8 @@ export const seedUsers: User[] = [
     dependents: 1,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
   {
     id: 'u3',
@@ -81,6 +87,8 @@ export const seedUsers: User[] = [
     dependents: 0,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
   {
     id: 'u4',
@@ -102,6 +110,8 @@ export const seedUsers: User[] = [
     dependents: 2,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
   {
     id: 'u5',
@@ -123,6 +133,8 @@ export const seedUsers: User[] = [
     dependents: 0,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
   // ——— Mariana Tech (MT) ———
   {
@@ -144,6 +156,8 @@ export const seedUsers: User[] = [
     dependents: 0,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
   {
     id: 'u7',
@@ -165,6 +179,8 @@ export const seedUsers: User[] = [
     dependents: 1,
     alimonyPercent: 0,
     active: true,
+    requiresPunch: true,
+
   },
 ]
 

@@ -16,6 +16,20 @@ function referenceLabel(ref: string): string {
 export default function MyPayrolls({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
 
+  // Módulo de folha desligado pelo gestor: nada aparece para o colaborador
+  const company = data.companies.find((c) => c.id === user.companyId)
+  if (company?.payrollEnabled === false) {
+    return (
+      <div className="space-y-6">
+        <header>
+          <h1 className="text-2xl font-bold text-slate-900">Meus holerites</h1>
+          <p className="mt-1 text-sm text-slate-500">O módulo de folha está desativado para sua empresa no momento.</p>
+        </header>
+        <EmptyState message="Seu gestor desativou temporariamente a ferramenta de folha. Fale com ele se precisar de um holerite." />
+      </div>
+    )
+  }
+
   /** Apenas folhas PUBLICADAS ficam visíveis para o colaborador (1 ativa por mês). */
   const myPayrolls = data.payrolls
     .filter((p) => p.userId === user.id && p.state === 'publicada' && !p.supersededBy)

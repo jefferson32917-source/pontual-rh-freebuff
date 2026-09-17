@@ -21,6 +21,9 @@ const YEARS = [currentYear + 1, currentYear, currentYear - 1, currentYear - 2]
 
 export default function Payroll({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
+  const company = data.companies.find((c) => c.id === user.companyId)
+  const payrollOn = company?.payrollEnabled !== false
+
   const employees = useMemo(
     () => data.users.filter((u) => u.companyId === user.companyId && u.role === 'colaborador' && u.active),
     [data.users, user.companyId],
@@ -28,7 +31,6 @@ export default function Payroll({ user, store }: { user: User; store: HrStore })
 
   const [selectedId, setSelectedId] = useState<string>(employees[0]?.id ?? '')
   const selected = data.users.find((u) => u.id === selectedId) ?? employees[0] ?? null
-  const company = data.companies.find((c) => c.id === user.companyId)
 
   const now = new Date()
   const [refMonth, setRefMonth] = useState(String(now.getMonth() + 1).padStart(2, '0'))
@@ -245,6 +247,29 @@ export default function Payroll({ user, store }: { user: User; store: HrStore })
           {msg.text}
         </p>
       )}
+
+      {/* Visibilidade do módulo para os colaboradores */}
+      <div className="card flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Folha disponível para os colaboradores</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            {payrollOn
+              ? 'Holerites publicados aparecem no painel e em "Meus holerites" dos colaboradores.'
+              : 'Módulo oculto: colaboradores não veem nada de folha. Os holerites continuam salvos e voltam ao reativar.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={payrollOn}
+          className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${payrollOn ? 'bg-primary-600' : 'bg-slate-300'}`}
+          onClick={() => company && store.updateCompany(company.id, { payrollEnabled: !payrollOn })}
+        >
+          <span
+            className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${payrollOn ? 'left-[22px]' : 'left-0.5'}`}
+          />
+        </button>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6">

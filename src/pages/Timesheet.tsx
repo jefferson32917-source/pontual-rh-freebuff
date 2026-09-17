@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { HrStore } from '../lib/store'
 import type { TimeEntryType, User } from '../types'
 import { formatTime, localDayKey, timeEntryLabels, weekDayShort, workedHours } from '../lib/format'
 import { weekDayLabels } from '../types'
 import { EmptyState, SectionCard, StatCard, StatusBadge } from '../components/ui'
-import { formatGeo, geoMapLink, useGeoConsent } from '../lib/geo'
+import { formatGeo, geoMapLink, reverseGeocode, useGeoConsent } from '../lib/geo'
 
 const entryOrder: TimeEntryType[] = ['entrada', 'saida_almoco', 'volta_almoco', 'saida']
 
@@ -38,7 +38,36 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
   const [geoBusy, setGeoBusy] = useState(false)
   /** Colaborador em visualização (gestor): null = o próprio usuário. */
   const [viewingId, setViewingId] = useState<string | null>(null)
+  /** Ajuste pelo gestor: dia em edição + justificativa digitada */
+  const [adjustingDay, setAdjustingDay] = useState<string | null>(null)
+  const [adjustNote, setAdjustNote] = useState('')
+  const [adjustError, setAdjustError] = useState<string | null>(null)
+  const [adjustBusy, setAdjustBusy] = useState(false)
+  /** Endereços legíveis por coordenada (cache local da página) */
+  const [addrMap, setAddrMap] = useState<Record<string, string>>({})
   const today = dayKey(now)
+
+  // Resolve endereços legíveis para todas as batidas com localização (uma vez)
+  const locKey = data.timeEntries
+    .filter((t) => t.location)
+    .map((t) => `${t.location!.lat.toFixed(5)},${t.location!.lng.toFixed(5)}`)
+    .join('|')
+  useEffect(() => {
+    if (!locKey) return
+    let alive = true
+    const coords = [...new Set(locKey.split('|'))]
+    for (const c of coords) {
+      if (addrMap[c]) continue
+      const [lat, lng] = c.split(',').map(Number) as [number, number]
+      void reverseGeocode({ lat, lng }).then((addr) => {
+        if (alive && addr) setAddrMap((m) => ({ ...m, [c]: addr }))
+      })
+    }
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [locKey])
 
   const geo = useGeoConsent(user.id)
 
@@ -134,12 +163,8 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
   async function punch() {
     setGeoBusy(true)
     try {
-      let loc = geo.status === 'granted' ? await geo.capture() : await geo.requestConsent()
-      if (geo.status !== 'granted' && !loc) {
-        // consentimento negado: não registra
-        setNow(new Date())
-        return
-      }
+      // Localização opcional: negar NÃO impede a batida (fica sem geo).
+      const loc = geo.status === 'granted' ? await geo.capture() : await geo.requestConsent()
       store.punchNext(user.id, new Date(), loc ?? undefined)
       setNow(new Date())
     } finally {
@@ -166,7 +191,17 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
       .finally(() => setDayOffBusy(false))
   }
 
-  const canEditSubject = !isViewingOther // só edita o próprio espelho
+  const canEditSubject = !isViewingOther // próprio espelho: edição simples
+  const canAdjustOthers = isViewingOther && (user.role === 'super_admin' || user.role === 'gestor')
+
+  /** Justificativas de ajuste do sujeito em exibição, por dia. */
+  const adjustmentsByDay = useMemo(() => {
+    const map = new Map<string, { note: string; adjustedBy: string }>()
+    for (const a of data.entryAdjustments) {
+      if (a.employeeId === subject.id) map.set(a.day, { note: a.note, adjustedBy: a.adjustedBy })
+    }
+    return map
+  }, [data.entryAdjustments, subject.id])
 
   return (
     <div className="space-y-6">
@@ -236,7 +271,7 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
               </p>
             ) : (
               <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
-                {geo.error ?? 'Para bater o ponto, é obrigatório permitir o compartilhamento da sua localização. Ela fica visível apenas para gestores/RH.'}
+                Sem localização autorizada: a batida é registrada, porém fica marcada como “sem localização”.
               </p>
             )}
             {isViewingOther ? (
@@ -245,20 +280,19 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                   ? 'Nenhuma batida hoje para este colaborador.'
                   : `${todayEntries.length} batida(s) registrada(s) hoje.`}
               </p>
-            ) : (
-              <button
-                type="button"
-                className="btn-primary mt-5 w-full py-3 text-base"
-                onClick={punch}
-                disabled={!canPunch || geoBusy}
-              >
-                {geoBusy
-                  ? 'Obtendo localização…'
-                  : canPunch
-                    ? geo.status === 'granted'
-                      ? `Registrar ${timeEntryLabels[nextType]}`
-                      : `Permitir local e registrar ${timeEntryLabels[nextType]}`
-                    : 'Ciclo do dia completo ✓'}
+            ) : (            <button
+              type="button"
+              className="btn-primary mt-5 w-full py-3 text-base"
+              onClick={punch}
+              disabled={!canPunch || geoBusy}
+            >
+              {geoBusy
+                ? 'Registrando…'
+                : canPunch
+                  ? geo.status === 'granted'
+                    ? `Registrar ${timeEntryLabels[nextType]}`
+                    : `Registrar ${timeEntryLabels[nextType]} (sem localização)`
+                  : 'Ciclo do dia completo ✓'}
               </button>
             )}
             {todayEntries.length > 0 && (
@@ -307,7 +341,9 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
             }
           >
             <p className="mb-3 text-xs text-slate-400">
-              Todo dia trabalhado deve ter as 4 batidas (entrada, saída almoço, volta, saída). Clique em <strong>Editar</strong> para corrigir ou completar um dia.
+              {canAdjustOthers
+                ? `Ajuste dias com batidas erradas de ${subject.name.split(' ')[0]} — a justificativa fica registrada e visível para o colaborador.`
+                : 'Todo dia trabalhado deve ter as 4 batidas (entrada, saída almoço, volta, saída). Clique em Editar para corrigir ou completar um dia.'}
             </p>
             <ul className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
               {mirror.map((day) => {
@@ -352,9 +388,72 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                           setEditingDay(null)
                         }}
                       />
+                    ) : adjustingDay === day.key && canAdjustOthers ? (
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-slate-600">
+                          Ajustando {day.label} de <strong>{subject.name}</strong> — informe as batidas corretas.
+                        </p>
+                        <DayEditor
+                          day={day}
+                          entries={editingEntries}
+                          onCancel={() => {
+                            setAdjustingDay(null)
+                            setAdjustNote('')
+                            setAdjustError(null)
+                          }}
+                          onSave={(times) => {
+                            if (adjustNote.trim().length < 5) {
+                              setAdjustError('Descreva o motivo do ajuste (mín. 5 caracteres) — o colaborador verá esta justificativa.')
+                              return
+                            }
+                            const typed = times
+                              .map((time, i) => ({ type: entryOrder[i]!, time }))
+                              .filter((t) => t.time !== '')
+                            setAdjustBusy(true)
+                            setAdjustError(null)
+                            store
+                              .adjustDayEntries(subject.id, day.key, typed, adjustNote.trim(), user.name)
+                              .then(() => {
+                                setAdjustingDay(null)
+                                setAdjustNote('')
+                              })
+                              .catch((e) => setAdjustError(e instanceof Error ? e.message : 'Falha ao ajustar o dia.'))
+                              .finally(() => setAdjustBusy(false))
+                          }}
+                        />
+                        <div>
+                          <label htmlFor={`adj-note-${day.key}`} className="mb-1 block text-xs font-medium text-slate-600">
+                            Justificativa do ajuste * (visível para o colaborador)
+                          </label>
+                          <textarea
+                            id={`adj-note-${day.key}`}
+                            className="input min-h-[56px] text-sm"
+                            maxLength={280}
+                            placeholder="Ex.: esquecimento de batida de saída, confirmado presença até 18h; correção de horário registrada errado no espelho…"
+                            value={adjustNote}
+                            onChange={(e) => setAdjustNote(e.target.value)}
+                          />
+                          {adjustError && (
+                            <p className="mt-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{adjustError}</p>
+                          )}
+                        </div>
+                        {adjustBusy && <p className="text-xs text-slate-500">Salvando ajuste…</p>}
+                      </div>
                     ) : (
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-medium capitalize text-slate-700">{day.label}</span>
+                        {(() => {
+                          const adj = adjustmentsByDay.get(day.key)
+                          if (!adj) return null
+                          return (
+                            <span
+                              className="w-full rounded-lg bg-primary-50 px-2.5 py-1.5 text-[11px] text-primary-800"
+                              title={`Ajustado por ${adj.adjustedBy}`}
+                            >
+                              🛠 Ajustado por <strong>{adj.adjustedBy}</strong>: {adj.note}
+                            </span>
+                          )
+                        })()}
                         <div className="flex flex-wrap items-center gap-1.5">
                           {day.punches.map((p, i) => (
                             <span
@@ -398,6 +497,20 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                                 ✏️ Editar
                               </button>
                             </>
+                          )}
+                          {canAdjustOthers && (
+                            <button
+                              type="button"
+                              className="btn-secondary border-amber-200 px-2.5 py-1 text-[11px] text-amber-700"
+                              onClick={() => {
+                                setAdjustingDay(adjustingDay === day.key ? null : day.key)
+                                setAdjustNote(adjustmentsByDay.get(day.key)?.note ?? '')
+                                setAdjustError(null)
+                              }}
+                              title="Corrigir as batidas deste dia com justificativa"
+                            >
+                              🛠 Ajustar
+                            </button>
                           )}
                         </div>
                       </div>
@@ -463,8 +576,12 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                           <span>Nenhuma batida hoje</span>
                         ) : (
                           entries.map((e) => (
-                            <span key={e.id} className="rounded-md bg-slate-100 px-1.5 py-0.5 font-medium" title={e.location ? `Local: ${formatGeo(e.location)}` : 'Sem localização'}>
-                              {timeEntryLabels[e.type].slice(0, 3)}: {formatTime(e.occurredAt)}{e.location ? ' 📍' : ''}
+                            <span
+                              key={e.id}
+                              className="rounded-md bg-slate-100 px-1.5 py-0.5 font-medium"
+                              title={e.location ? `Local: ${addrMap[`${e.location.lat.toFixed(5)},${e.location.lng.toFixed(5)}`] ?? formatGeo(e.location)}` : 'Batida sem localização autorizada'}
+                            >
+                              {timeEntryLabels[e.type].slice(0, 3)}: {formatTime(e.occurredAt)}{e.location ? ' 📍' : ' ⛌'}
                             </span>
                           ))
                         )}
@@ -473,7 +590,7 @@ export default function Timesheet({ user, store }: { user: User; store: HrStore 
                         <p className="mt-1.5 text-[11px] text-slate-500">
                           📍 Última localização:{' '}
                           <a href={geoMapLink(lastLoc)} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-600 hover:underline">
-                            {formatGeo(lastLoc)}
+                            {addrMap[`${lastLoc.lat.toFixed(5)},${lastLoc.lng.toFixed(5)}`] ?? formatGeo(lastLoc)}
                           </a>
                         </p>
                       )}

@@ -21,7 +21,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
   const [fName, setFName] = useState('')
   const [fEmail, setFEmail] = useState('')
   const [fPassword, setFPassword] = useState('')
-  const [fRole, setFRole] = useState<'gestor' | 'colaborador'>('colaborador')
+  const [fRoleCreate, setFRole] = useState<'gestor' | 'colaborador'>('colaborador')
   const [fCompanyId, setFCompanyId] = useState('')
   const [fJobTitle, setFJobTitle] = useState('')
   const [fDepartment, setFDepartment] = useState('')
@@ -33,6 +33,10 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
   const [fAddress, setFAddress] = useState('')
   const [fCep, setFCep] = useState('')
   const [fConfidential, setFConfidential] = useState('')
+  /** Nova promção/ajuste de cargo: colaborador -> gestor (apenas SA). */
+  const [fRole, setFRoleEdit] = useState<'gestor' | 'colaborador' | null>(null)
+  /** Bate ponto? (default true; gestor costuma ficar de fora) */
+  const [fRequiresPunch, setFRequiresPunch] = useState(true)
 
   const companies = data.companies
   const companyOf = (id: string | null) => companies.find((c) => c.id === id)
@@ -79,7 +83,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
     }
     const result = store.createUser(user, {
       companyId,
-      role: fRole,
+      role: fRoleCreate,
       name: fName,
       email: fEmail,
       jobTitle: fJobTitle,
@@ -87,7 +91,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
       baseSalary: parseFloat(fBaseSalary.replace(',', '.')) || 0,
       password: fPassword,
       admissionDate: new Date().toISOString().slice(0, 10),
-      managerId: fRole === 'colaborador' && fManagerId ? fManagerId : undefined,
+      managerId: fRoleCreate === 'colaborador' && fManagerId ? fManagerId : undefined,
     })
     if (!result.ok) {
       setFormError(result.error)
@@ -123,6 +127,8 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
     setFAddress(u.address ?? '')
     setFCep(u.cep ?? '')
     setFConfidential(u.confidentialNotes ?? '')
+    setFRequiresPunch(u.requiresPunch)
+    setFRoleEdit(null)
     setFormError(null)
   }
 
@@ -145,6 +151,12 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
       address: fAddress.trim().slice(0, 160),
       cep: fCep.trim().slice(0, 12),
       confidentialNotes: fConfidential.trim().slice(0, 500),
+      requiresPunch: fRequiresPunch,
+    }
+    // PROMOÇÃO: colaborador -> gestor (apenas SA, aplicada junto ao salvar)
+    if (fRole !== null && editing.role === 'colaborador' && fRole === 'gestor') {
+      patch.role = 'gestor'
+      patch.managerId = undefined
     }
     if (fPassword.length > 0) {
       if (fPassword.length < 6) {
@@ -194,10 +206,8 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
             )}
             <div>
               <label htmlFor="nu-role" className="mb-1.5 block text-sm font-medium text-slate-700">Perfil</label>
-              <select id="nu-role" className="input" value={fRole} onChange={(e) => setFRole(e.target.value as 'gestor' | 'colaborador')}>
-                {canCreateRole(user, 'gestor') && <option value="gestor">Gestor/RH (matrícula {(companyOf(fCompanyId || user.companyId)?.initials ?? '??')[0]}G…)</option>}
-                <option value="colaborador">Colaborador (matrícula {(companyOf(fCompanyId || user.companyId)?.initials ?? '??')[0]}C…)</option>
-              </select>
+              <select id="nu-role" className="input" value={fRoleCreate} onChange={(e) => setFRole(e.target.value as 'gestor' | 'colaborador')}>                  {canCreateRole(user, 'gestor') && <option value="gestor">Gestor/RH (matrícula {(companyOf(fCompanyId || user.companyId)?.initials ?? '??')[0]}G…)</option>}                  <option value="colaborador">Colaborador (matrícula {(companyOf(fCompanyId || user.companyId)?.initials ?? '??')[0]}C…)</option>
+                </select>
             </div>
             <div>
               <label htmlFor="nu-name" className="mb-1.5 block text-sm font-medium text-slate-700">Nome completo</label>
@@ -399,7 +409,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
                         <label className="mb-1 block text-xs font-medium text-slate-600" htmlFor={`ed-conf-${u.id}`}>Dados confidenciais (visíveis apenas para a empresa)</label>
                         <textarea id={`ed-conf-${u.id}`} className="input min-h-[64px]" maxLength={500} value={fConfidential} onChange={(e) => setFConfidential(e.target.value)} placeholder="Alergias, restrições, documentos internos, observações restritas…" />
                       </div>
-                      {editing?.role === 'colaborador' && (
+                      {editing?.role === 'colaborador' && fRole !== 'gestor' && (
                         <div className="sm:col-span-2">
                           <label className="mb-1 block text-xs font-medium text-slate-600" htmlFor={`ed-manager-${u.id}`}>Gestor responsável</label>
                           <select id={`ed-manager-${u.id}`} className="input" value={fManagerId} onChange={(e) => setFManagerId(e.target.value)}>
@@ -412,6 +422,47 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
                           </select>
                         </div>
                       )}
+                      {/* PROMOÇÃO: colaborador -> gestor (só SA) */}
+                      {isSuperAdmin(user) && editing?.role === 'colaborador' && (
+                        <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3.5">
+                          <p className="text-xs font-semibold text-amber-800">⬆ Promover a gestor</p>
+                          <p className="mt-0.5 text-[11px] text-amber-700">
+                            Concede poderes de aprovação, cadastro de colaboradores e visão da equipe. A matrícula permanece; o acesso/painel muda no próximo login.
+                          </p>
+                          <div className="mt-2 flex items-center gap-2">
+                            <select
+                              className="input w-auto flex-1 text-xs"
+                              value={fRole ?? 'colaborador'}
+                              onChange={(e) => setFRoleEdit(e.target.value as 'gestor' | 'colaborador')}
+                              aria-label="Perfil do usuário"
+                            >
+                              <option value="colaborador">Continua colaborador</option>
+                              <option value="gestor">Promover para gestor</option>
+                            </select>
+                          </div>
+                        </div>
+                      )}
+                      {/* BATE PONTO? (admin decide; padrão: sim) */}
+                      <div className="sm:col-span-2 rounded-xl border border-slate-200 p-3.5">
+                        <label className="flex items-center justify-between gap-3" htmlFor={`ed-punch-${u.id}`}>
+                          <span>
+                            <span className="block text-xs font-semibold text-slate-700">Bate ponto</span>
+                            <span className="block text-[11px] text-slate-500">
+                              Desligue para gestores/_funções que não registram batidas. O painel dele deixa de mostrar o relógio de ponto.
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            id={`ed-punch-${u.id}`}
+                            role="switch"
+                            aria-checked={fRequiresPunch}
+                            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${fRequiresPunch ? 'bg-primary-600' : 'bg-slate-300'}`}
+                            onClick={() => setFRequiresPunch((v) => !v)}
+                          >
+                            <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition-all ${fRequiresPunch ? 'left-[22px]' : 'left-0.5'}`} />
+                          </button>
+                        </label>
+                      </div>
                       {formError && (
                         <p role="alert" className="sm:col-span-2 rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{formError}</p>
                       )}

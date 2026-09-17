@@ -13,13 +13,16 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
   const { data } = store
 
   /** Holerite publicado mais recente — disponível direto no painel inicial. */
-  const latestPayroll: PayrollRun | null = useMemo(
-    () =>
+  const latestPayroll: PayrollRun | null = useMemo(() => {
+    // módulo de folha desligado: colaborador não vê holerite no painel
+    const company = data.companies.find((c) => c.id === user.companyId)
+    if (company?.payrollEnabled === false) return null
+    return (
       data.payrolls
         .filter((p) => p.userId === user.id && p.state === 'publicada' && !p.supersededBy)
-        .sort((a, b) => b.reference.localeCompare(a.reference) || b.version - a.version)[0] ?? null,
-    [data.payrolls, user.id],
-  )
+        .sort((a, b) => b.reference.localeCompare(a.reference) || b.version - a.version)[0] ?? null
+    )
+  }, [data.payrolls, data.companies, user.id, user.companyId])
   const [showFullPayroll, setShowFullPayroll] = useState(false)
 
   const myPdis = useMemo(() => data.pdis.filter((p) => p.employeeId === user.id), [data, user.id])

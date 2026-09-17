@@ -40,6 +40,16 @@ export function canCreateRole(viewer: User, role: Role): boolean {
   return false
 }
 
+/** Este usuário é obrigado a bater ponto? (padrão: sim, exceto gestor/SA sem flag) */
+export function punchRequired(u: User): boolean {
+  return u.requiresPunch
+}
+
+/** A empresa tem o módulo de folha habilitado? */
+export function payrollEnabledFor(company: { payrollEnabled?: boolean } | undefined): boolean {
+  return company?.payrollEnabled !== false // default ligado (empresas antigas)
+}
+
 /** Campos que `viewer` pode alterar em `target`. */
 export interface EditableFields {
   profile: boolean // nome, cargo, departamento, salário, agenda etc.

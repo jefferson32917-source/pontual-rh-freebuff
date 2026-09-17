@@ -50,6 +50,7 @@ export async function getAuthUser(): Promise<User | null> {
     dependents: profile.dependents,
     alimonyPercent: Number(profile.alimony_percent ?? 0),
     active: profile.active,
+    requiresPunch: (profile as { requires_punch?: boolean | null }).requires_punch !== false,
   }
 }
 
@@ -115,6 +116,7 @@ export async function login(identifier: string, password: string): Promise<Login
     dependents: profile.dependents,
     alimonyPercent: Number(profile.alimony_percent ?? 0),
     active: profile.active,
+    requiresPunch: (profile as { requires_punch?: boolean | null }).requires_punch !== false,
   }
   return { ok: true, user }
 }

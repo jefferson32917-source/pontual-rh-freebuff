@@ -12,6 +12,34 @@ function diffDays(start: string, end: string): number {
   return Math.floor((e.getTime() - s.getTime()) / 86_400_000) + 1
 }
 
+/**
+ * Data em que o colaborador adquire os próximos 30 dias de férias
+ * (admissão + 12 meses, rolada ano a ano). Simples e clara:
+ * "30 dias disponíveis em DD/MM/AAAA".
+ */
+function nextAccrualDate(admissionDate: string): { date: string; acquired: boolean } {
+  const adm = new Date(admissionDate + 'T12:00:00')
+  if (Number.isNaN(adm.getTime())) return { date: '—', acquired: false }
+  const now = new Date()
+  // período aquisitivo atual: quantos anos completos desde a admissão
+  let years = now.getFullYear() - adm.getFullYear()
+  const anniversary = new Date(adm)
+  anniversary.setFullYear(adm.getFullYear() + years)
+  if (anniversary.getTime() > now.getTime()) {
+    years -= 1
+    anniversary.setFullYear(adm.getFullYear() + years)
+  }
+  // o período aquisitivo vigente completou em `anniversary` (adquirido);
+  // o PRÓXIMO completa em anniversary + 1 ano
+  const next = new Date(anniversary)
+  next.setFullYear(anniversary.getFullYear() + 1)
+  const acquired = anniversary.getTime() <= now.getTime()
+  return {
+    date: next.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
+    acquired,
+  }
+}
+
 export default function Vacations({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
   const canApprove = user.role === 'super_admin' || user.role === 'gestor'
@@ -52,6 +80,7 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
 
   const myHistory = history.filter((h) => h.employeeId === user.id)
   const totalEnjoyed = myHistory.reduce((acc, h) => acc + h.days, 0)
+  const myAccrual = nextAccrualDate(user.admissionDate)
 
   const pending = visible.filter((v) => v.status === 'pendente')
   const approvedUpcoming = visible.filter((v) => {
@@ -89,11 +118,11 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
 
   function decide(v: VacationRequest, status: VacationRequest['status']) {
     store.updateVacationStatus(v.id, status)
-    // debita saldo do colaborador ao aprovar (simulação local; no Supabase, via trigger/RPC)
     if (status === 'aprovada') {
+      // debita o saldo do colaborador (persistido em profiles.vacation_balance_days)
       const person = data.users.find((u) => u.id === v.employeeId)
       if (person) {
-        store.updateSchedule(person.id, person.weeklySchedule)
+        store.updateVacationBalance(person.id, Math.max(0, person.vacationBalanceDays - v.days))
       }
     }
   }
@@ -108,7 +137,12 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
       </header>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Seu saldo" value={`${user.vacationBalanceDays} dias`} hint="disponíveis" tone="primary" />
+        <StatCard
+          label="Seu saldo"
+          value={`${user.vacationBalanceDays} dias`}
+          hint={`30 dias disponíveis em ${myAccrual.date}`}
+          tone="primary"
+        />
         <StatCard label="Solicitações pendentes" value={pending.length} hint="aguardando decisão" tone="amber" />
         <StatCard label="Férias futuras" value={approvedUpcoming.length} hint="aprovadas" tone="teal" />
         <StatCard label="Dias gozados (você)" value={totalEnjoyed} hint="desde a admissão" tone="rose" />
@@ -275,7 +309,8 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{u.name}</p>
                       <p className="text-xs text-slate-500">
-                        {scheduled > 0 ? `${scheduled} dias agendados` : 'nada agendado'}
+                        {scheduled > 0 ? `${scheduled} dias agendados` : 'nada agendado'} · 30 dias em{' '}
+                        {nextAccrualDate(u.admissionDate).date}
                       </p>
                     </div>
                     <span className="text-sm font-bold text-primary-700">{u.vacationBalanceDays} dias</span>

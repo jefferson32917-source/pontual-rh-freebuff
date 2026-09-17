@@ -47,6 +47,7 @@ interface DbProfile {
   alimony_percent: number | string
   photo_url: string | null
   active: boolean
+  requires_punch?: boolean | null
 }
 
 interface DbCompany {
@@ -64,6 +65,7 @@ interface DbCompany {
   responsible_phone: string
   created_at: string
   active: boolean
+  payroll_enabled?: boolean | null
 }
 
 function toUser(p: DbProfile): User {
@@ -95,6 +97,7 @@ function toUser(p: DbProfile): User {
     dependents: p.dependents,
     alimonyPercent: Number(p.alimony_percent ?? 0),
     active: p.active,
+    requiresPunch: p.requires_punch !== false, // padrão: bate ponto
   }
 }
 
@@ -114,6 +117,7 @@ function toCompany(c: DbCompany): Company {
     responsiblePhone: c.responsible_phone,
     createdAt: c.created_at,
     active: c.active,
+    payrollEnabled: c.payroll_enabled !== false, // padrão ligado
   }
 }
 
@@ -163,6 +167,12 @@ function toRequest(r: any, attachments: RequestAttachment[]): Request {
     status: r.status,
     createdAt: r.created_at,
     attachments,
+    startDate: r.start_date ?? undefined,
+    endDate: r.end_date ?? undefined,
+    daysCount: r.days_count ?? undefined,
+    returnDate: r.return_date ?? undefined,
+    cid: r.cid ?? undefined,
+    reviewNote: r.review_note ?? undefined,
   }
 }
 
@@ -189,6 +199,8 @@ function toTimeEntry(r: any): TimeEntry {
       r.latitude != null && r.longitude != null
         ? { lat: r.latitude, lng: r.longitude, accuracy: r.accuracy ?? undefined }
         : undefined,
+    adjustmentNote: r.adjustment_note ?? undefined,
+    adjustedBy: r.adjusted_by ?? undefined,
   }
 }
 
@@ -245,6 +257,7 @@ export interface HrData {
   tasks: Record<string, TaskItem[]>
   payrolls: PayrollRun[]
   hourBank: HourBankAdjustment[]
+  entryAdjustments: import('../types').TimeEntryAdjustment[]
 }
 
 /** Cache do core em sessionStorage: refresh da página abre instantâneo. */
@@ -345,6 +358,16 @@ export async function loadHeavyData(): Promise<Omit<HrData, 'companies' | 'users
 
 function mapHeavyRows(r: Record<string, unknown>): Omit<HrData, 'companies' | 'users'> {
   const rows = (k: string): any[] => (Array.isArray(r[k]) ? (r[k] as any[]) : [])
+  const entryAdjustments: import('../types').TimeEntryAdjustment[] = rows('time_entries')
+    .filter((row) => row.adjustment_note)
+    .map((row) => ({
+      id: `adj-${row.id}`,
+      employeeId: row.employee_id,
+      day: String(row.occurred_at).slice(0, 10),
+      note: row.adjustment_note,
+      adjustedBy: row.adjusted_by ?? '—',
+      adjustedAt: row.occurred_at,
+    }))
   const attachMap = new Map<string, RequestAttachment[]>()
   for (const a of rows('request_attachments')) {
     const list = attachMap.get(a.request_id) ?? []
@@ -401,6 +424,7 @@ function mapHeavyRows(r: Record<string, unknown>): Omit<HrData, 'companies' | 'u
       payrollId: row.payroll_id ?? '',
       createdAt: row.created_at,
     })),
+    entryAdjustments,
   }
 }
 
@@ -433,7 +457,12 @@ async function loadHeavyDataParallel(): Promise<Omit<HrData, 'companies' | 'user
   const firstErr = [pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank].find(
     (r) => r.error,
   )?.error
-  if (firstErr) throw new Error(`Erro ao carregar dados: ${firstErr.message}`)
+  if (firstErr) {
+    // coluna adjustment_note pode ainda não existir (migration_v6 pendente):
+    // ajusta a carga para não derrubar o app
+    const fatal = !/adjustment_note|adjusted_by|requires_punch|payroll_enabled/i.test(firstErr.message)
+    if (fatal) throw new Error(`Erro ao carregar dados: ${firstErr.message}`)
+  }
 
   const attachMap = new Map<string, RequestAttachment[]>()
   for (const a of (attachments.data ?? []) as any[]) {
@@ -491,6 +520,16 @@ async function loadHeavyDataParallel(): Promise<Omit<HrData, 'companies' | 'user
       payrollId: r.payroll_id ?? '',
       createdAt: r.created_at,
     })),
+    entryAdjustments: ((timeEntries.data ?? []) as any[])
+      .filter((r) => r.adjustment_note)
+      .map((r) => ({
+        id: `adj-${r.id}`,
+        employeeId: r.employee_id,
+        day: String(r.occurred_at).slice(0, 10),
+        note: r.adjustment_note,
+        adjustedBy: r.adjusted_by ?? '—',
+        adjustedAt: r.occurred_at,
+      })),
   }
 }
 
@@ -655,6 +694,26 @@ export async function apiAdminDeleteUser(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+/** Atualiza flags simples do perfil (bate-ponto) — coluna direta, RLS de gestor aplica. */
+export async function apiUpdateUserFlags(id: string, patch: { requiresPunch?: boolean }): Promise<void> {
+  const sb = getSupabase()
+  const row: Record<string, unknown> = {}
+  if (patch.requiresPunch != null) row.requires_punch = patch.requiresPunch
+  if (Object.keys(row).length === 0) return
+  const { error } = await sb.from('profiles').update(row).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/** Toggle do módulo de folha da empresa (gestor pode ocultar a ferramenta). */
+export async function apiUpdateCompanyFlags(id: string, patch: { payrollEnabled?: boolean }): Promise<void> {
+  const sb = getSupabase()
+  const row: Record<string, unknown> = {}
+  if (patch.payrollEnabled != null) row.payroll_enabled = patch.payrollEnabled
+  if (Object.keys(row).length === 0) return
+  const { error } = await sb.from('companies').update(row).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 /** Perfil próprio (nome/email/cargo/departamento/foto) — RLS permite update do próprio. */
 export async function apiUpdateOwnProfile(id: string, patch: { name?: string; email?: string; jobTitle?: string; department?: string }): Promise<void> {
   const sb = getSupabase()
@@ -754,13 +813,31 @@ export interface RequestInput {
   period: string
   justification: string
   attachments: { fileName: string; mimeType: string; sizeBytes: number; dataUrl?: string; file?: File }[]
+  /** Atestado estruturado */
+  status?: 'pendente' | 'aprovado'
+  startDate?: string
+  endDate?: string
+  daysCount?: number
+  returnDate?: string
+  cid?: string
 }
 
 export async function apiCreateRequest(employeeId: string, input: RequestInput): Promise<void> {
   const sb = getSupabase()
   const { data: req, error } = await sb
     .from('requests')
-    .insert({ employee_id: employeeId, type: input.type, period: input.period, justification: input.justification, status: 'pendente' })
+    .insert({
+      employee_id: employeeId,
+      type: input.type,
+      period: input.period,
+      justification: input.justification,
+      status: input.status ?? 'pendente',
+      start_date: input.startDate ?? null,
+      end_date: input.endDate ?? null,
+      days_count: input.daysCount ?? null,
+      return_date: input.returnDate ?? null,
+      cid: input.cid ?? null,
+    })
     .select('id')
     .single()
   if (error) throw new Error(error.message)
@@ -784,9 +861,11 @@ export async function apiCreateRequest(employeeId: string, input: RequestInput):
   }
 }
 
-export async function apiUpdateRequestStatus(id: string, status: Request['status']): Promise<void> {
+export async function apiUpdateRequestStatus(id: string, status: Request['status'], reviewNote?: string): Promise<void> {
   const sb = getSupabase()
-  const { error } = await sb.from('requests').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id)
+  const row: Record<string, unknown> = { status, reviewed_at: new Date().toISOString() }
+  if (reviewNote != null && reviewNote.trim()) row.review_note = reviewNote.trim().slice(0, 280)
+  const { error } = await sb.from('requests').update(row).eq('id', id)
   if (error) throw new Error(error.message)
 }
 
@@ -921,6 +1000,46 @@ export async function apiDeleteTimeEntry(id: string): Promise<void> {
   const sb = getSupabase()
   const { error } = await sb.from('time_entries').delete().eq('id', id)
   if (error) throw new Error(error.message)
+}
+
+/**
+ * Ajuste de batidas pelo GESTOR: substitui o dia inteiro e grava a
+ * justificativa em cada batida (auditoria + colaborador vê quem alterou).
+ * Requer a migration_v6 (RLS de gestor em time_entries + colunas de ajuste).
+ */
+export async function apiAdjustDayEntries(
+  employeeId: string,
+  day: string,
+  entries: { type: TimeEntryType; time: string }[],
+  note: string,
+  adjustedByName: string,
+): Promise<void> {
+  const sb = getSupabase()
+  const startUtc = new Date(`${day}T00:00:00-03:00`).toISOString()
+  const endUtc = new Date(new Date(`${day}T00:00:00-03:00`).getTime() + 24 * 3_600_000).toISOString()
+  const { data: existing, error: selErr } = await sb
+    .from('time_entries')
+    .select('id')
+    .gte('occurred_at', startUtc)
+    .lt('occurred_at', endUtc)
+    .eq('employee_id', employeeId)
+  if (selErr) throw new Error(selErr.message)
+  const ids = (existing ?? []).map((e: any) => e.id)
+  if (ids.length > 0) {
+    const { error: delErr } = await sb.from('time_entries').delete().in('id', ids)
+    if (delErr) throw new Error('Sem permissão para ajustar batidas deste colaborador (verifique a migration_v6).')
+  }
+  if (entries.length > 0) {
+    const rows = entries.map((e) => ({
+      employee_id: employeeId,
+      entry_type: e.type,
+      occurred_at: `${day}T${e.time}:00-03:00`,
+      adjustment_note: note.trim().slice(0, 280) || null,
+      adjusted_by: adjustedByName.slice(0, 120),
+    }))
+    const { error: insErr } = await sb.from('time_entries').insert(rows)
+    if (insErr) throw new Error(insErr.message)
+  }
 }
 
 export async function apiSetDayEntries(employeeId: string, day: string, entries: { type: TimeEntryType; time: string }[]): Promise<void> {

@@ -83,7 +83,7 @@ export function useGeoConsent(userId: string) {
   return { status, error, requestConsent, capture }
 }
 
-/** Formata coordenadas para exibição (só usado por gestores/RH). */
+/** Formata coordenadas para exibição (fallback quando não há endereço). */
 export function formatGeo(loc: { lat: number; lng: number; accuracy?: number }): string {
   return `${loc.lat.toFixed(6)}, ${loc.lng.toFixed(6)}${loc.accuracy ? ` (±${loc.accuracy}m)` : ''}`
 }
@@ -91,4 +91,36 @@ export function formatGeo(loc: { lat: number; lng: number; accuracy?: number }):
 /** Link do Google Maps para a coordenada. */
 export function geoMapLink(loc: { lat: number; lng: number }): string {
   return `https://www.google.com/maps?q=${loc.lat},${loc.lng}`
+}
+
+// ============ Geocodificação reversa (coordenada -> endereço) ============
+
+const addrCache = new Map<string, string>()
+
+/**
+ * Converte coordenadas em endereço legível via Nominatim (OpenStreetMap,
+ * gratuito, sem chave). Cache em memória por sessão. Falha -> null (a UI
+ * cai para as coordenadas).
+ */
+export async function reverseGeocode(loc: { lat: number; lng: number }): Promise<string | null> {
+  const key = `${loc.lat.toFixed(5)},${loc.lng.toFixed(5)}`
+  const hit = addrCache.get(key)
+  if (hit) return hit
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${loc.lat}&lon=${loc.lng}&zoom=18&addressdetails=1&accept-language=pt-BR`,
+      { headers: { Accept: 'application/json' } },
+    )
+    if (!res.ok) return null
+    const json = (await res.json()) as { display_name?: string }
+    const name = json.display_name?.trim()
+    if (!name) return null
+    // encurta: rua, número, bairro, cidade (sem país/CEP longos)
+    const parts = name.split(',').map((p) => p.trim())
+    const short = parts.slice(0, 5).join(', ')
+    addrCache.set(key, short)
+    return short
+  } catch {
+    return null
+  }
 }

@@ -24,11 +24,18 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
   const [type, setType] = useState<RequestType>('atestado')
   const [period, setPeriod] = useState('')
   const [justification, setJustification] = useState('')
+  // Atestado estruturado: datas, dias e retorno
+  const [attStart, setAttStart] = useState('')
+  const [attEnd, setAttEnd] = useState('')
+  const [attReturn, setAttReturn] = useState('')
+  const [attCid, setAttCid] = useState('')
   const [attachments, setAttachments] = useState<RequestAttachment[]>([])
   /** Arquivos reais aguardando upload (persistidos no Supabase Storage). */
   const [pendingFiles, setPendingFiles] = useState<Map<string, File>>(new Map())
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  /** Filtro por colaborador (gestor/SA avaliam pessoa a pessoa). */
+  const [filterEmployee, setFilterEmployee] = useState('all')
   /** Requisição em avaliação pelo gestor (painel de detalhe). */
   const [reviewingId, setReviewingId] = useState<string | null>(null)
   /** Anexo aberto no visualizador (imagem/PDF). */
@@ -36,13 +43,15 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
   const [reviewNote, setReviewNote] = useState('')
 
   const visible = data.requests.filter((r) => {
-    if (user.role === 'super_admin') return true
+    if (user.role === 'super_admin') {
+      return filterEmployee === 'all' || r.employeeId === filterEmployee
+    }
     if (user.role === 'gestor') {
       const requester = data.users.find((u) => u.id === r.employeeId)
-      return (
+      const inScope =
         (requester?.companyId === user.companyId && requester?.role === 'colaborador') ||
         r.employeeId === user.id
-      )
+      return inScope && (filterEmployee === 'all' || r.employeeId === filterEmployee)
     }
     return r.employeeId === user.id
   })
@@ -85,17 +94,49 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
     })
   }
 
+  /** Monta os campos estruturados de atestado a partir do form. */
+  function buildAttendanceFields() {
+    if (type !== 'atestado') {
+      return { period: period.trim().slice(0, 80), fields: {} }
+    }
+    if (!attStart || !attEnd) {
+      return { period: '', fields: {}, error: 'Informe a data inicial e final do atestado.' }
+    }
+    const days = Math.floor((new Date(attEnd).getTime() - new Date(attStart).getTime()) / 86_400_000) + 1
+    if (days < 1) {
+      return { period: '', fields: {}, error: 'A data final do atestado deve ser igual ou posterior à inicial.' }
+    }
+    const ret = attReturn
+      ? ` · retorno em ${attReturn.split('-').reverse().join('/')}`
+      : ' · retorno em 1 dia útil (confirmar)'
+    return {
+      period: `${attStart.split('-').reverse().join('/')} a ${attEnd.split('-').reverse().join('/')} (${days} dia${days > 1 ? 's' : ''})${ret}`,
+      fields: {
+        startDate: attStart,
+        endDate: attEnd,
+        daysCount: days,
+        returnDate: attReturn || undefined,
+        cid: attCid.trim().slice(0, 8) || undefined,
+      },
+      error: null as string | null,
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    const safePeriod = period.trim().slice(0, 80)
     const safeJustification = justification.trim().slice(0, 280)
-    if (!safePeriod || !safeJustification) {
-      setError('Preencha o período e a justificativa da solicitação.')
+    if (!safeJustification) {
+      setError('Descreva a justificativa da solicitação.')
       return
     }
     if (type === 'atestado' && attachments.length === 0) {
       setError('Solicitações de atestado exigem o documento anexado.')
+      return
+    }
+    const built = buildAttendanceFields()
+    if (built.error || !built.period) {
+      setError(built.error ?? 'Preencha o período da solicitação.')
       return
     }
     setSubmitting(true)
@@ -105,11 +146,12 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
           id: `r${Date.now()}`,
           employeeId: user.id,
           type,
-          period: safePeriod,
+          period: built.period,
           justification: safeJustification,
           status: 'pendente',
           createdAt: new Date().toISOString(),
           attachments,
+          ...(built.fields as object),
         },
         attachments.map((a) => ({
           fileName: a.fileName,
@@ -122,6 +164,10 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
       setJustification('')
       setAttachments([])
       setPendingFiles(new Map())
+      setAttStart('')
+      setAttEnd('')
+      setAttReturn('')
+      setAttCid('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao enviar a solicitação.')
     } finally {
@@ -131,7 +177,7 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
 
   function decide(status: 'aprovado' | 'reprovado') {
     if (!reviewing) return
-    store.updateRequestStatus(reviewing.id, status)
+    store.updateRequestStatus(reviewing.id, status, reviewNote.trim() || undefined)
     setReviewingId(null)
     setReviewNote('')
   }
@@ -143,14 +189,18 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
   async function handleOwnSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    const safePeriod = period.trim().slice(0, 80)
     const safeJustification = justification.trim().slice(0, 280)
-    if (!safePeriod || !safeJustification) {
-      setError('Preencha o período e a justificativa da solicitação.')
+    if (!safeJustification) {
+      setError('Descreva a justificativa da solicitação.')
       return
     }
     if (type === 'atestado' && attachments.length === 0) {
       setError('Solicitações de atestado exigem o documento anexado.')
+      return
+    }
+    const built = buildAttendanceFields()
+    if (built.error || !built.period) {
+      setError(built.error ?? 'Preencha o período da solicitação.')
       return
     }
     setSubmitting(true)
@@ -160,11 +210,12 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
           id: `r${Date.now()}`,
           employeeId: user.id,
           type,
-          period: safePeriod,
+          period: built.period,
           justification: safeJustification,
           status: 'aprovado', // credencial própria: sem fluxo de aprovação
           createdAt: new Date().toISOString(),
           attachments,
+          ...(built.fields as object),
         },
         attachments.map((a) => ({
           fileName: a.fileName,
@@ -177,6 +228,10 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
       setJustification('')
       setAttachments([])
       setPendingFiles(new Map())
+      setAttStart('')
+      setAttEnd('')
+      setAttReturn('')
+      setAttCid('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao enviar a solicitação.')
     } finally {
@@ -194,6 +249,34 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
             : 'Envie documentos e justificativas (atestados, folgas) para aprovação.'}
         </p>
       </header>
+
+      {canApprove && (
+        <div className="card flex flex-wrap items-center gap-3 p-4">
+          <span className="text-sm font-medium text-slate-600">Filtrar por colaborador:</span>
+          <select
+            className="input w-auto"
+            value={filterEmployee}
+            onChange={(e) => setFilterEmployee(e.target.value)}
+            aria-label="Filtrar por colaborador"
+          >
+            <option value="all">Todos ({user.role === 'super_admin' ? 'empresa toda' : 'minha equipe'})</option>
+            {data.users
+              .filter((u) =>
+                user.role === 'super_admin'
+                  ? u.role !== 'super_admin'
+                  : u.companyId === user.companyId && u.role === 'colaborador',
+              )
+              .map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+          </select>
+          <span className="ml-auto text-xs text-slate-400">
+            {visible.filter((r) => r.status === 'pendente').length} pendente(s) no filtro atual
+          </span>
+        </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <SectionCard title={canApprove ? 'Registrar meu atestado / folga' : 'Nova requisição'}>
@@ -215,19 +298,94 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
                   ))}
                 </select>
               </div>
-              <div>
-                <label htmlFor="req-period" className="mb-1.5 block text-sm font-medium text-slate-700">
-                  Período / data
-                </label>
-                <input
-                  id="req-period"
-                  className="input"
-                  placeholder="Ex.: 12/10/2026"
-                  maxLength={80}
-                  value={period}
-                  onChange={(e) => setPeriod(e.target.value)}
-                />
-              </div>
+              {type === 'atestado' ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="req-att-start" className="mb-1.5 block text-sm font-medium text-slate-700">
+                        Início do afastamento *
+                      </label>
+                      <input
+                        id="req-att-start"
+                        type="date"
+                        className="input"
+                        required
+                        value={attStart}
+                        onChange={(e) => setAttStart(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="req-att-end" className="mb-1.5 block text-sm font-medium text-slate-700">
+                        Fim do afastamento *
+                      </label>
+                      <input
+                        id="req-att-end"
+                        type="date"
+                        className="input"
+                        required
+                        min={attStart || undefined}
+                        value={attEnd}
+                        onChange={(e) => setAttEnd(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  {attStart && attEnd && new Date(attEnd) >= new Date(attStart) && (
+                    <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      Afastamento de <strong>{Math.floor((new Date(attEnd).getTime() - new Date(attStart).getTime()) / 86_400_000) + 1} dia(s)</strong>
+                      {attReturn && (
+                        <> · retorno ao trabalho em <strong>{attReturn.split('-').reverse().join('/')}</strong></>
+                      )}
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label htmlFor="req-att-return" className="mb-1.5 block text-sm font-medium text-slate-700">
+                        Data de retorno
+                      </label>
+                      <input
+                        id="req-att-return"
+                        type="date"
+                        className="input"
+                        min={attEnd || undefined}
+                        value={attReturn}
+                        onChange={(e) => setAttReturn(e.target.value)}
+                      />
+                      {!attReturn && attEnd && (
+                        <p className="mt-1 text-[11px] text-slate-400">
+                          Se vazio: retorno em 1 dia útil após o fim.
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="req-att-cid" className="mb-1.5 block text-sm font-medium text-slate-700">
+                        CID (opcional)
+                      </label>
+                      <input
+                        id="req-att-cid"
+                        className="input"
+                        maxLength={8}
+                        placeholder="Ex.: J11"
+                        value={attCid}
+                        onChange={(e) => setAttCid(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label htmlFor="req-period" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Período / data
+                  </label>
+                  <input
+                    id="req-period"
+                    className="input"
+                    placeholder="Ex.: 12/10/2026"
+                    maxLength={80}
+                    value={period}
+                    onChange={(e) => setPeriod(e.target.value)}
+                  />
+                </div>
+              )}
               <div>
                 <label htmlFor="req-just" className="mb-1.5 block text-sm font-medium text-slate-700">
                   Justificativa
@@ -325,6 +483,21 @@ export default function Requests({ user, store }: { user: User; store: HrStore }
                           {formatDateTime(request.createdAt)}
                         </p>
                         <p className="mt-1.5 line-clamp-2 text-sm text-slate-600">{request.justification}</p>
+                        {request.type === 'atestado' && request.startDate && (
+                          <p className="mt-1.5 rounded-lg bg-slate-50 px-2.5 py-1.5 text-[11px] font-medium text-slate-600">
+                            🏥 {request.startDate.split('-').reverse().join('/')} a{' '}
+                            {request.endDate?.split('-').reverse().join('/')} · {request.daysCount ?? '—'} dia(s)
+                            {request.returnDate
+                              ? ` · retorno ${request.returnDate.split('-').reverse().join('/')}`
+                              : ''}
+                            {request.cid ? ` · CID ${request.cid}` : ''}
+                          </p>
+                        )}
+                        {request.reviewNote && (
+                          <p className="mt-1.5 rounded-lg bg-primary-50 px-2.5 py-1.5 text-[11px] text-primary-800">
+                            💬 Avaliação do gestor: {request.reviewNote}
+                          </p>
+                        )}
                         {request.attachments.length > 0 && (
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {request.attachments.map((a) => (

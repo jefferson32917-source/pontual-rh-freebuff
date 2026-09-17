@@ -16,6 +16,7 @@ import type {
   VacationRequest,
   Vacancy,
 } from '../types'
+import type { TimeEntryAdjustment } from '../types'
 import * as api from './api'
 import { nextMatricula, pickAvatarColor } from './matricula'
 import { localDayKey, localTodayKey } from './format'
@@ -67,6 +68,7 @@ export interface HrData {
   tasks: Record<string, TaskItem[]>
   payrolls: PayrollRun[]
   hourBank: HourBankAdjustment[]
+  entryAdjustments: TimeEntryAdjustment[]
 }
 
 export type CreateResult = { ok: true; user: User } | { ok: false; error: string }
@@ -85,6 +87,7 @@ const emptyData: HrData = {
   tasks: {},
   payrolls: [],
   hourBank: [],
+  entryAdjustments: [],
 }
 
 export function useHrData() {
@@ -181,6 +184,7 @@ export function useHrData() {
       responsiblePhone: '',
       createdAt: new Date().toISOString(),
       active: true,
+      payrollEnabled: true,
     }
     setData((d) => ({ ...d, companies: [...d.companies, company] }))
     void api
@@ -208,6 +212,9 @@ export function useHrData() {
       companies: d.companies.map((c) => (c.id === id ? { ...c, ...patch } : c)),
     }))
     if (id.startsWith('local_')) return
+    if (patch.payrollEnabled !== undefined) {
+      void api.apiUpdateCompanyFlags(id, { payrollEnabled: patch.payrollEnabled }).catch(() => void reload())
+    }
     void api.apiUpdateCompany(id, patch).catch(() => void reload())
   }, [reload])
 
@@ -263,6 +270,8 @@ export function useHrData() {
       dependents: input.dependents ?? 0,
       alimonyPercent: 0,
       active: true,
+      // Gestores criados por padrão NÃO batem ponto (admin pode ligar depois)
+      requiresPunch: input.role === 'colaborador',
     }
     setData((d) => ({ ...d, users: [...d.users, optimistic] }))
 
@@ -309,6 +318,9 @@ export function useHrData() {
       users: d.users.map((u) => (u.id === id ? { ...u, ...patch } : u)),
     }))
     if (id.startsWith('local_')) return
+    if (patch.requiresPunch !== undefined) {
+      void api.apiUpdateUserFlags(id, { requiresPunch: patch.requiresPunch }).catch(() => void reload())
+    }
     void api
       .apiAdminUpdateUser(id, {
         name: patch.name,
@@ -411,9 +423,12 @@ export function useHrData() {
     void api.apiAddFeedback(feedback).catch(() => void reload())
   }, [reload])
 
-  const updateRequestStatus = useCallback((id: string, status: Request['status']) => {
-    setData((d) => ({ ...d, requests: d.requests.map((r) => (r.id === id ? { ...r, status } : r)) }))
-    void api.apiUpdateRequestStatus(id, status).catch(() => void reload())
+  const updateRequestStatus = useCallback((id: string, status: Request['status'], reviewNote?: string) => {
+    setData((d) => ({
+      ...d,
+      requests: d.requests.map((r) => (r.id === id ? { ...r, status, reviewNote: reviewNote ?? r.reviewNote } : r)),
+    }))
+    void api.apiUpdateRequestStatus(id, status, reviewNote).catch(() => void reload())
   }, [reload])
 
   /**
@@ -555,6 +570,42 @@ export function useHrData() {
         setData((d) => ({ ...d, timeEntries: snapshot }))
         setError('Não foi possível salvar a edição deste dia.')
       })
+    },
+    [data.timeEntries, reload],
+  )
+
+  /**
+   * Ajuste de batidas de um colaborador PELO GESTOR, com justificativa
+   * obrigatória (fica gravada em cada batida: auditoria + colaborador vê).
+   */
+  const adjustDayEntries = useCallback(
+    (employeeId: string, day: string, entries: { type: TimeEntryType; time: string }[], note: string, adjustedByName: string): Promise<void> => {
+      const snapshot = data.timeEntries
+      setData((d) => ({
+        ...d,
+        timeEntries: [
+          ...entries.map((e, i) => ({
+            id: `local_adj${Date.now()}${i}`,
+            employeeId,
+            type: e.type,
+            occurredAt: `${day}T${e.time}:00.000`,
+            adjustmentNote: note,
+            adjustedBy: adjustedByName,
+          })),
+          ...d.timeEntries.filter((t) => !(t.employeeId === employeeId && localDayKey(t.occurredAt) === day)),
+        ],
+        entryAdjustments: [
+          { id: `local_ta${Date.now()}`, employeeId, day, note, adjustedBy: adjustedByName, adjustedAt: new Date().toISOString() },
+          ...d.entryAdjustments,
+        ],
+      }))
+      return api
+        .apiAdjustDayEntries(employeeId, day, entries, note, adjustedByName)
+        .catch((e) => {
+          setData((d) => ({ ...d, timeEntries: snapshot }))
+          throw e
+        })
+        .then(() => void reload())
     },
     [data.timeEntries, reload],
   )
@@ -740,6 +791,7 @@ export function useHrData() {
       restorePayroll,
       addHourBankAdjustment,
       setDayEntries,
+      adjustDayEntries,
       resetData,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps

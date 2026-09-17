@@ -19,6 +19,8 @@ export interface Company {
   responsiblePhone?: string
   createdAt: string
   active: boolean
+  /** Módulo de folha habilitado para esta empresa (gestor pode desligar) */
+  payrollEnabled: boolean
 }
 
 export interface User {
@@ -62,6 +64,8 @@ export interface User {
   /** Outras margens: pensão alimentícia (% do salário bruto) */
   alimonyPercent: number
   active: boolean
+  /** Este usuário precisa bater ponto (padrão: true; gestores costumam ficar de fora) */
+  requiresPunch: boolean
 }
 
 export type WeekDay = 'seg' | 'ter' | 'qua' | 'qui' | 'sex' | 'sab' | 'dom'
@@ -120,12 +124,25 @@ export interface Request {
   id: string
   employeeId: string
   type: RequestType
+  /** Descrição curta do período — ou datas estruturadas de atestado (ver abaixo) */
   period: string
   justification: string
   status: RequestStatus
   createdAt: string
   /** Metadados dos anexos (arquivos em si ficam no Supabase Storage; em demo, base64 no localStorage) */
   attachments: RequestAttachment[]
+  /** Atestado: data inicial (YYYY-MM-DD) */
+  startDate?: string
+  /** Atestado: data final (YYYY-MM-DD) */
+  endDate?: string
+  /** Atestado: quantidade de dias */
+  daysCount?: number
+  /** Atestado: data de retorno ao trabalho (YYYY-MM-DD) */
+  returnDate?: string
+  /** Atestado: CID (opcional, sigla médica) */
+  cid?: string
+  /** Observação da avaliação do gestor (aprovado/reprovado) */
+  reviewNote?: string
 }
 
 export interface RequestAttachment {
@@ -193,6 +210,21 @@ export interface TimeEntry {
   occurredAt: string
   /** Local da batida (visível apenas para gestores/RH) */
   location?: GeoLocation
+  /** Justificativa de ajuste (quando editado pelo gestor) — visível ao colaborador */
+  adjustmentNote?: string
+  /** Nome de quem ajustou a batida (auditoria) */
+  adjustedBy?: string
+}
+
+/** Justificativa de ajuste de um dia de batidas (auditoria + colaborador vê). */
+export interface TimeEntryAdjustment {
+  id: string
+  employeeId: string
+  /** YYYY-MM-DD */
+  day: string
+  note: string
+  adjustedBy: string
+  adjustedAt: string
 }
 
 export interface TaskItem {

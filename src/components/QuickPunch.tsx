@@ -21,6 +21,9 @@ export default function QuickPunch({ user, store }: { user: User; store: HrStore
 
   const geo = useGeoConsent(user.id)
 
+  // Admin decidiu que este usuário não bate ponto: componente nem renderiza
+  if (!user.requiresPunch) return null
+
   // relógio ao vivo (atualiza a cada segundo)
   useEffect(() => {
     const t = window.setInterval(() => setNow(new Date()), 1000)
@@ -39,13 +42,15 @@ export default function QuickPunch({ user, store }: { user: User; store: HrStore
     setGeoBusy(true)
     setFlash(null)
     try {
-      let loc = geo.status === 'granted' ? await geo.capture() : await geo.requestConsent()
-      if (geo.status !== 'granted' && !loc) {
-        setFlash('Para registrar o ponto, é necessário permitir a localização.')
-        return
-      }
+      // Localização é OPCIONAL: se o usuário negar, a batida entra sem geo
+      // (marcada como "sem localização autorizada"), mas é registrada.
+      const loc = geo.status === 'granted' ? await geo.capture() : await geo.requestConsent()
       store.punchNext(user.id, new Date(), loc ?? undefined)
-      setFlash(`✓ ${timeEntryLabels[nextType]} registrada às ${formatTime(new Date().toISOString())}`)
+      setFlash(
+        loc
+          ? `✓ ${timeEntryLabels[nextType]} registrada às ${formatTime(new Date().toISOString())} (com localização)`
+          : `✓ ${timeEntryLabels[nextType]} registrada às ${formatTime(new Date().toISOString())} — sem localização`,
+      )
     } catch (e) {
       setFlash(e instanceof Error ? e.message : 'Falha ao registrar a batida.')
     } finally {
@@ -93,7 +98,7 @@ export default function QuickPunch({ user, store }: { user: User; store: HrStore
         )}
         {geo.status !== 'granted' && !flash && (
           <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
-            {geo.error ?? 'A primeira batida pede permissão de localização (fica visível apenas para seu gestor).'}
+            Sem localização autorizada: você ainda pode bater o ponto — a batida fica registrada como “sem localização”.
           </p>
         )}
         {todayEntries.length > 0 && (
