@@ -2,7 +2,11 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import App from './App'
+import { installChunkRecovery } from './lib/chunkRecovery'
 import './index.css'
+
+// Recupera automaticamente de chunk obsoleto após deploy (reload 1x)
+installChunkRecovery()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
