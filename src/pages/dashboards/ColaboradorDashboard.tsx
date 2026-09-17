@@ -7,6 +7,7 @@ import HoleriteSheet from '../../components/HoleriteSheet'
 import { downloadPayrollPdf } from '../../lib/pdf'
 import { printPayroll } from '../../lib/print'
 import TaskList from '../../components/TaskList'
+import QuickPunch from '../../components/QuickPunch'
 
 export default function ColaboradorDashboard({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
@@ -104,6 +105,9 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
           <HoleriteSheet run={latestPayroll} />
         </div>
       )}
+
+      {/* Bater ponto direto do painel — sem abrir a aba Ponto */}
+      <QuickPunch user={user} store={store} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard title="Minhas tarefas">

@@ -4,6 +4,7 @@ import type { User } from '../../types'
 import { formatDate, pdiStatusLabels, requestTypeLabels } from '../../lib/format'
 import { Avatar, EmptyState, ProgressBar, SectionCard, StatCard, StatusBadge } from '../../components/ui'
 import TaskList from '../../components/TaskList'
+import QuickPunch from '../../components/QuickPunch'
 
 export default function GestorDashboard({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
@@ -43,6 +44,9 @@ export default function GestorDashboard({ user, store }: { user: User; store: Hr
         <StatCard label="PDIs em risco" value={stats.atRisk} hint="precisam de atenção" tone="rose" />
         <StatCard label="Aprovações pendentes" value={stats.pending} hint="da equipe" tone="amber" />
       </div>
+
+      {/* Bater ponto direto do painel — sem abrir a aba Ponto */}
+      <QuickPunch user={user} store={store} />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard title="Suas tarefas">
