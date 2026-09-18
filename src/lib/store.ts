@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type {
   Company,
   DayOffRequest,
@@ -18,6 +18,7 @@ import type {
 } from '../types'
 import type { Assessment, AssessmentQuestion, PdiStep, TimeEntryAdjustment } from '../types'
 import * as api from './api'
+import { getSupabase } from './supabase'
 import { nextMatricula, pickAvatarColor } from './matricula'
 import { localDayKey, localTodayKey } from './format'
 import { markStart, markEnd } from './perf'
@@ -163,6 +164,25 @@ export function useHrData() {
   // lê nada útil e seriam 12 queries jogadas fora. O App chama reload()
   // assim que há um usuário autenticado.
   // useEffect(() => { void reload() }, [reload])
+
+  /**
+   * Refresh periódico (60s) dos dados pesados enquanto há sessão: garante
+   * que conteúdo publicado pelo gestor (holerite, feedback, requisição
+   * aprovada…) apareça para o colaborador em <= 1 min, sem precisar de F5.
+   */
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      // só consulta com sessão ativa (RLS); silencioso — a próxima volta tenta de novo
+      void getSupabase()
+        .auth.getSession()
+        .then(({ data: s }: { data: { session: unknown } }) => {
+          if (!s.session) return
+          return api.loadHeavyData().then((heavy) => setData((d) => ({ ...d, ...heavy })))
+        })
+        .catch(() => void 0)
+    }, 60_000)
+    return () => window.clearInterval(id)
+  }, [])
 
   // ============ Empresas (Super Admin) ============
   const createCompany = useCallback((name: string, cnpj: string): Company => {

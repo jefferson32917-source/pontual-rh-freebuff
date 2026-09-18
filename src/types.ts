@@ -111,6 +111,10 @@ export type AssessmentKind = 'questionario' | 'avaliacao'
 export interface AssessmentQuestion {
   id: string
   text: string
+  /** 'aberta' = resposta em texto; 'opcoes' = escolha entre options */
+  type?: 'aberta' | 'opcoes'
+  /** Opções de resposta quando type === 'opcoes' */
+  options?: string[]
   /** Resposta do colaborador (salva em tempo real, pergunta a pergunta) */
   answer?: string
 }

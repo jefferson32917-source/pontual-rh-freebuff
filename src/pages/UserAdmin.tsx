@@ -59,7 +59,13 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
     if (isSuperAdmin(user) && filterCompany !== 'all') {
       list = list.filter((u) => u.companyId === filterCompany || (filterCompany === 'sa' && u.companyId === null))
     }
-    return list
+    // O super admin (admin da conta) é sempre fixo em primeiro na lista.
+    return [...list].sort((a, b) => {
+      const aSA = a.role === 'super_admin' ? 0 : 1
+      const bSA = b.role === 'super_admin' ? 0 : 1
+      if (aSA !== bSA) return aSA - bSA
+      return a.name.localeCompare(b.name, 'pt-BR')
+    })
   }, [data.users, user, query, filterRole, filterCompany])
 
   const managers = useMemo(

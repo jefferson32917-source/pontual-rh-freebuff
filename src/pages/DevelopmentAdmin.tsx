@@ -23,12 +23,16 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
   const assessments = data.assessments.filter((a) => a.createdBy === user.id || teamIds.has(a.assignedTo))
   const teamPdis = data.pdis.filter((p) => teamIds.has(p.employeeId))
 
-  // ============ form: aplicar questionário/avaliação ============
+  // ============ form: aplicar feedback/avaliação ============
   const [kind, setKind] = useState<AssessmentKind>('questionario')
   const [target, setTarget] = useState('')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [questionsText, setQuestionsText] = useState('')
+  /** tipo de resposta por pergunta (índice alinha com as perguntas do textarea) */
+  const [questionTypes, setQuestionTypes] = useState<('aberta' | 'opcoes')[]>([])
+  /** opções (uma por linha) por pergunta de múltipla escolha */
+  const [questionOptions, setQuestionOptions] = useState<string[][]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -47,21 +51,52 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
   async function handleApplyAssessment(e: FormEvent) {
     e.preventDefault()
     setError(null)
-    const questions = questionsText
-      .split('\n')
-      .map((q) => q.trim())
-      .filter(Boolean)
-      .map((text, i) => ({ id: `q${i + 1}`, text: text.slice(0, 300) }))
-    if (!target || !title.trim() || questions.length === 0) {
-      setError('Selecione o colaborador, dê um título e escreva ao menos uma pergunta (uma por linha).')
+    if (!target || !title.trim()) {
+      setError('Selecione o colaborador e dê um título.')
       return
+    }
+    /**
+     * FEEDBACK (questionario): sem perguntas — é a mensagem direta do gestor.
+     * AVALIAÇÃO: perguntas com tipo (aberta ou opções).
+     */
+    let questions: { id: string; text: string; type?: 'aberta' | 'opcoes'; options?: string[] }[] = []
+    if (kind === 'avaliacao') {
+      questions = questionsText
+        .split('\n')
+        .map((q) => q.trim())
+        .filter(Boolean)
+        .map((text, i) => {
+          const type = questionTypes[i] ?? 'aberta'
+          const options = (questionOptions[i] ?? [])
+            .map((o) => o.trim())
+            .filter(Boolean)
+            .slice(0, 10)
+          return {
+            id: `q${i + 1}`,
+            text: text.slice(0, 300),
+            type,
+            ...(type === 'opcoes' && options.length >= 2 ? { options } : {}),
+          }
+        })
+      if (questions.length === 0) {
+        setError('Escreva ao menos uma pergunta da avaliação (uma por linha).')
+        return
+      }
+      const badOption = questions.find((q) => q.type === 'opcoes' && (q.options?.length ?? 0) < 2)
+      if (badOption) {
+        setError(`A pergunta "${badOption.text.slice(0, 40)}…" é de opções — registre pelo menos 2 opções de resposta.`)
+        return
+      }
     }
     setSaving(true)
     try {
       await store.createAssessment({
         kind,
         title: title.trim().slice(0, 140),
-        description: description.trim().slice(0, 400) || undefined,
+        description:
+          kind === 'questionario'
+            ? description.trim().slice(0, 2000) || undefined // feedback: a mensagem vive aqui
+            : description.trim().slice(0, 400) || undefined,
         createdBy: user.id,
         assignedTo: target,
         questions,
@@ -70,6 +105,8 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
       setTitle('')
       setDescription('')
       setQuestionsText('')
+      setQuestionTypes([])
+      setQuestionOptions([])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Falha ao aplicar. Tente novamente.')
     } finally {
@@ -161,22 +198,79 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
             </div>
             <div>
               <label htmlFor="dev-desc" className="mb-1.5 block text-sm font-medium text-slate-700">
-                Instruções (opcional)
-              </label>
-              <textarea id="dev-desc" className="input min-h-[56px] resize-y" maxLength={400} value={description} onChange={(e) => setDescription(e.target.value)} />
-            </div>
-            <div>
-              <label htmlFor="dev-questions" className="mb-1.5 block text-sm font-medium text-slate-700">
-                Perguntas — uma por linha
+                {kind === 'questionario' ? 'Feedback' : 'Instruções (opcional)'}
               </label>
               <textarea
-                id="dev-questions"
+                id="dev-desc"
                 className="input min-h-[110px] resize-y"
-                placeholder={'Como você avalia sua comunicação?\nQuais objetivos alcançou neste trimestre?'}
-                value={questionsText}
-                onChange={(e) => setQuestionsText(e.target.value)}
+                maxLength={kind === 'questionario' ? 2000 : 400}
+                placeholder={kind === 'questionario' ? 'Escreva o feedback para o colaborador — ele recebe no painel e confirma a leitura.' : 'Opcional: contexto ou instruções para o colaborador.'}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
               />
             </div>
+            {kind === 'avaliacao' && (
+              <div>
+                <label htmlFor="dev-questions" className="mb-1.5 block text-sm font-medium text-slate-700">
+                  Perguntas — uma por linha
+                </label>
+                <textarea
+                  id="dev-questions"
+                  className="input min-h-[110px] resize-y"
+                  placeholder={'Como você avalia sua comunicação?\nQuais objetivos alcançou neste trimestre?'}
+                  value={questionsText}
+                  onChange={(e) => {
+                    setQuestionsText(e.target.value)
+                    // mantém os arrays paralelos alinhados com as perguntas
+                    const count = e.target.value.split('\n').filter((l) => l.trim()).length
+                    setQuestionTypes((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? 'aberta'))
+                    setQuestionOptions((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? []))
+                  }}
+                />
+              </div>
+            )}
+            {kind === 'avaliacao' && questionTypes.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-slate-500">Tipo de resposta de cada pergunta:</p>
+                {questionTypes.map((qt, i) => (
+                  <div key={i} className="rounded-xl border border-slate-200 p-3">
+                    <p className="truncate text-xs font-medium text-slate-700">{i + 1}. {questionsText.split('\n').filter((l) => l.trim())[i] ?? '—'}</p>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setQuestionTypes((prev) => prev.map((v, j) => (j === i ? 'aberta' : v)))}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${qt === 'aberta' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-600'}`}
+                        aria-pressed={qt === 'aberta'}
+                      >
+                        ✍ Resposta aberta
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuestionTypes((prev) => prev.map((v, j) => (j === i ? 'opcoes' : v)))}
+                        className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${qt === 'opcoes' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-600'}`}
+                        aria-pressed={qt === 'opcoes'}
+                      >
+                        ☑ Marcar opções
+                      </button>
+                    </div>
+                    {qt === 'opcoes' && (
+                      <div className="mt-2">
+                        <label htmlFor={`qopt-${i}`} className="mb-1 block text-[11px] font-medium text-slate-500">
+                          Opções de resposta — uma por linha (mín. 2)
+                        </label>
+                        <textarea
+                          id={`qopt-${i}`}
+                          className="input min-h-[64px] resize-y text-sm"
+                          placeholder={'Ótimo\nBom\nPrecisa melhorar'}
+                          value={(questionOptions[i] ?? []).join('\n')}
+                          onChange={(e) => setQuestionOptions((prev) => prev.map((v, j) => (j === i ? e.target.value.split('\n') : v)))}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {error && (
               <p role="alert" className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm font-medium text-rose-700">
                 {error}
@@ -346,8 +440,11 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                       <p className="text-sm font-semibold text-slate-800">
                         {i + 1}. {q.text}
                       </p>
+                      {q.type === 'opcoes' && q.options && q.options.length > 0 && (
+                        <p className="mt-1 text-[11px] text-slate-400">Opções: {q.options.join(' · ')}{q.answer ? ` — marcada: ${q.answer}` : ''}</p>
+                      )}
                       <p className={`mt-1 rounded-xl px-3 py-2 text-sm ${q.answer ? 'bg-slate-50 text-slate-700' : 'bg-slate-50 italic text-slate-400'}`}>
-                        {q.answer || 'Sem resposta ainda'}
+                        {q.type === 'opcoes' && q.options ? q.answer || 'Aguardando marcação…' : q.answer || 'Sem resposta ainda'}
                       </p>
                     </li>
                   ))}

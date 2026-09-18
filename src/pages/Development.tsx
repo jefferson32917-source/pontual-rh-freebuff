@@ -9,6 +9,9 @@ import { toast } from '../components/Toast'
 export default function Development({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
 
+  /** Dar feedback é credencial de gestão: gestor e Super Admin; colaborador só recebe/confirma. */
+  const canGiveFeedback = user.role === 'gestor' || user.role === 'super_admin'
+
   const [toId, setToId] = useState('')
   const [kind, setKind] = useState<FeedbackKind>('positivo')
   const [message, setMessage] = useState('')
@@ -21,7 +24,11 @@ export default function Development({ user, store }: { user: User; store: HrStor
   /** Questionários/avaliações aplicados a mim pelo gestor. */
   const myAssessments = data.assessments.filter((a) => a.assignedTo === user.id)
 
-  const colleagues = data.users.filter((u) => u.id !== user.id && u.companyId === user.companyId)
+  const colleagues = data.users.filter(
+    (u) =>
+      u.id !== user.id &&
+      (user.role === 'super_admin' || (u.companyId === user.companyId && u.role === 'colaborador')),
+  )
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -88,16 +95,36 @@ export default function Development({ user, store }: { user: User; store: HrStor
                           <label htmlFor={`${a.id}-${q.id}`} className="mb-1 block text-sm font-medium text-slate-700">
                             {i + 1}. {q.text}
                           </label>
-                          <textarea
-                            id={`${a.id}-${q.id}`}
-                            className="input min-h-[56px] resize-y"
-                            placeholder="Sua resposta…"
-                            defaultValue={q.answer ?? ''}
-                            onBlur={(e) => {
-                              const next = a.questions.map((x) => (x.id === q.id ? { ...x, answer: e.target.value.trim().slice(0, 1000) } : x))
-                              store.saveAssessmentAnswers(a.id, next, false) // tempo real: salva ao sair do campo
-                            }}
-                          />
+                          {q.type === 'opcoes' && q.options && q.options.length > 0 ? (
+                            <div className="space-y-1.5" role="radiogroup" aria-label={q.text}>
+                              {q.options.map((opt) => (
+                                <label key={opt} className={`flex cursor-pointer items-center gap-2.5 rounded-xl border p-2.5 text-sm ${q.answer === opt ? 'border-primary-400 bg-primary-50 font-medium text-primary-800' : 'border-slate-200 hover:bg-slate-50'}`}>
+                                  <input
+                                    type="radio"
+                                    name={`${a.id}-${q.id}`}
+                                    className="h-4 w-4 accent-primary-600"
+                                    checked={q.answer === opt}
+                                    onChange={() => {
+                                      const next = a.questions.map((x) => (x.id === q.id ? { ...x, answer: opt } : x))
+                                      store.saveAssessmentAnswers(a.id, next, false)
+                                    }}
+                                  />
+                                  {opt}
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <textarea
+                              id={`${a.id}-${q.id}`}
+                              className="input min-h-[56px] resize-y"
+                              placeholder="Sua resposta…"
+                              defaultValue={q.answer ?? ''}
+                              onBlur={(e) => {
+                                const next = a.questions.map((x) => (x.id === q.id ? { ...x, answer: e.target.value.trim().slice(0, 1000) } : x))
+                                store.saveAssessmentAnswers(a.id, next, false) // tempo real: salva ao sair do campo
+                              }}
+                            />
+                          )}
                         </div>
                       ))}
                       <button
@@ -188,7 +215,8 @@ export default function Development({ user, store }: { user: User; store: HrStor
           )}
         </SectionCard>
 
-        <SectionCard title="Dar feedback">
+        <SectionCard title="Dar feedback (credencial de gestor)">
+          {canGiveFeedback ? (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label htmlFor="fb-to" className="mb-1.5 block text-sm font-medium text-slate-700">
@@ -252,6 +280,9 @@ export default function Development({ user, store }: { user: User; store: HrStor
               Enviar feedback
             </button>
           </form>
+          ) : (
+            <EmptyState message="Somente gestores enviam feedbacks. Você recebe e confirma os feedbacks no painel — sua voz chega ao gestor pelas respostas de avaliação e requisições." />
+          )}
         </SectionCard>
 
         <SectionCard title="Feedbacks recebidos" action={<StatusBadge tone="primary">{received.length}</StatusBadge>}>
@@ -295,29 +326,31 @@ export default function Development({ user, store }: { user: User; store: HrStor
           )}
         </SectionCard>
 
-        <SectionCard title="Feedbacks enviados" action={<StatusBadge tone="neutral">{given.length}</StatusBadge>}>
-          {given.length === 0 ? (
-            <EmptyState message="Você ainda não enviou feedbacks." />
-          ) : (
-            <ul className="space-y-3">
-              {given.map((f) => {
-                const to = data.users.find((u) => u.id === f.toId)
-                return (
-                  <li key={f.id} className="rounded-xl border border-slate-100 p-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="text-sm font-semibold text-slate-900">{to?.name ?? '—'}</p>
-                      <StatusBadge tone={f.kind === 'positivo' ? 'teal' : 'amber'}>
-                        {f.kind === 'positivo' ? 'Positivo' : 'Melhoria'}
-                      </StatusBadge>
-                      <span className="text-xs text-slate-400">{formatDateTime(f.createdAt)}</span>
-                    </div>
-                    <p className="mt-1 text-sm leading-relaxed text-slate-600">{f.message}</p>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </SectionCard>
+        {canGiveFeedback && (
+          <SectionCard title="Feedbacks enviados" action={<StatusBadge tone="neutral">{given.length}</StatusBadge>}>
+            {given.length === 0 ? (
+              <EmptyState message="Você ainda não enviou feedbacks." />
+            ) : (
+              <ul className="space-y-3">
+                {given.map((f) => {
+                  const to = data.users.find((u) => u.id === f.toId)
+                  return (
+                    <li key={f.id} className="rounded-xl border border-slate-100 p-4">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-sm font-semibold text-slate-900">{to?.name ?? '—'}</p>
+                        <StatusBadge tone={f.kind === 'positivo' ? 'teal' : 'amber'}>
+                          {f.kind === 'positivo' ? 'Positivo' : 'Melhoria'}
+                        </StatusBadge>
+                        <span className="text-xs text-slate-400">{formatDateTime(f.createdAt)}</span>
+                      </div>
+                      <p className="mt-1 text-sm leading-relaxed text-slate-600">{f.message}</p>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </SectionCard>
+        )}
       </div>
     </div>
   )

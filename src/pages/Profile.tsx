@@ -211,6 +211,8 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
             </form>
           </SectionCard>
 
+          {/* Super admin não administra quadro próprio — só gestores/colaboradores têm jornada. */}
+          {current.role !== 'super_admin' && (
           <SectionCard title="Meu quadro de horários">
             <ul className="space-y-1.5">
               {weekOrder.map((day) => {
@@ -229,6 +231,7 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
               {weekOrder.filter((d) => current.weeklySchedule[d]).length} dias de jornada · alterações pelo seu gestor
             </p>
           </SectionCard>
+          )}
         </div>
       </div>
     </div>
