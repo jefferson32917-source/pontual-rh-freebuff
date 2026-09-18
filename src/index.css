@@ -188,3 +188,12 @@
 .toast-enter {
   animation: toast-in 0.18s ease-out;
 }
+
+/* Esteira do menu: esconde a scrollbar mantendo o arraste */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

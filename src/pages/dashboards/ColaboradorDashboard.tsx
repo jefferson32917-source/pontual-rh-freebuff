@@ -192,7 +192,7 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
                       {pdiStatusLabels[pdi.status]}
                     </StatusBadge>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">Prazo: {formatDate(pdi.dueDate)}</p>
+                  {pdi.dueDate ? <p className="mt-2 text-xs text-slate-500">Prazo: {formatDate(pdi.dueDate)}</p> : null}
                   <div className="mt-3">
                     <div className="mb-1.5 flex justify-between text-xs font-semibold text-slate-500">
                       <span>Progresso</span>

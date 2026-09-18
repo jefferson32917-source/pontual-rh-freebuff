@@ -130,14 +130,14 @@ export default function Layout({
             <img src="/logo.svg" alt="Pontual RH Super" className="h-9 w-auto" />
           </NavLink>
 
-          <nav className="hidden items-center gap-1 lg:flex" aria-label="Navegação principal">
+          <nav className="hidden max-w-[44vw] items-center gap-1 overflow-x-auto lg:flex" aria-label="Navegação principal">
             {items.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
                 className={({ isActive }) =>
-                  `relative flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                  `relative flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-primary-50 text-primary-700'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -157,9 +157,9 @@ export default function Layout({
             ))}
           </nav>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-semibold leading-tight text-slate-900">{user.name}</p>
+          <div className="hidden min-w-0 items-center gap-3 sm:flex">
+            <div className="min-w-0 max-w-[180px] text-right">
+              <p className="truncate text-sm font-semibold leading-tight text-slate-900">{user.name}</p>
               <p className="text-xs text-slate-500">
                 {roleLabels[user.role]}
                 {user.matricula ? ` · ${user.matricula}` : ''}
@@ -192,14 +192,14 @@ export default function Layout({
         className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
         aria-label="Navegação principal"
       >
-        <div className="mx-auto flex max-w-xl items-stretch justify-start overflow-x-auto">
+        <div className="no-scrollbar mx-auto flex max-w-xl items-stretch justify-start overflow-x-auto">
           {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
               className={({ isActive }) =>
-                `relative flex min-w-[64px] flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
+                `relative flex w-20 min-w-[72px] shrink-0 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-primary-600' : 'text-slate-500'
                 }`
               }

@@ -170,7 +170,7 @@ export default function Development({ user, store }: { user: User; store: HrStor
                       {pdiStatusLabels[pdi.status]}
                     </StatusBadge>
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-500">Prazo: {formatDate(pdi.dueDate)}</p>
+                  {pdi.dueDate ? <p className="mt-0.5 text-xs text-slate-500">Prazo: {formatDate(pdi.dueDate)}</p> : null}
                   <div className="mt-3">
                     <ProgressBar value={pdi.progress} />
                     <div className="mt-2 flex items-center justify-between">
@@ -426,6 +426,20 @@ export default function Development({ user, store }: { user: User; store: HrStor
                         <span className="text-xs text-slate-400">{formatDateTime(f.createdAt)}</span>
                       </div>
                       <p className="mt-1 text-sm leading-relaxed text-slate-600">{f.message}</p>
+                      <div className="mt-2 text-right">
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-rose-600 hover:underline"
+                          onClick={() => {
+                            if (window.confirm('Excluir este feedback? O colaborador deixará de vê-lo.')) {
+                              store.deleteFeedback(f.id)
+                              toast.success('Feedback excluído.')
+                            }
+                          }}
+                        >
+                          Excluir
+                        </button>
+                      </div>
                     </li>
                   )
                 })}

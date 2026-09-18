@@ -954,6 +954,13 @@ export async function apiDeletePdi(pdiId: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+/** Exclui um feedback enviado pelo gestor (colaborador deixa de ver). */
+export async function apiDeleteFeedback(id: string): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('feedbacks').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
 export async function apiCreateVacancy(v: Omit<Vacancy, 'id' | 'companyId'>): Promise<void> {
   const sb = getSupabase()
   const { error } = await sb.from('vacancies').insert({

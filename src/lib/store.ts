@@ -172,6 +172,14 @@ export function useHrData() {
    */
   useEffect(() => {
     const id = window.setInterval(() => {
+      // Pausa quando o usuário está INTERAGINDO (campo em foco ou tecla
+      // pressionada): o swap de `data` re-renderiza as páginas e pode
+      // descartar rascunhos de formulários longos (ex.: cadastro de PDI).
+      const active = document.activeElement
+      const typing =
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT' || active.isContentEditable)
+      if (typing || document.hidden) return
       // só consulta com sessão ativa (RLS); silencioso — a próxima volta tenta de novo
       void getSupabase()
         .auth.getSession()
@@ -703,6 +711,13 @@ export function useHrData() {
     void api.apiDeletePdi(pdiId).catch(() => void reload())
   }, [reload])
 
+  /** Gestor exclui um feedback que enviou (colaborador deixa de ver). */
+  const deleteFeedback = useCallback((id: string) => {
+    setData((d) => ({ ...d, feedbacks: d.feedbacks.filter((f) => f.id !== id) }))
+    if (id.startsWith('local_')) return
+    void api.apiDeleteFeedback(id).catch(() => void reload())
+  }, [reload])
+
   const updateRequestStatus = useCallback((id: string, status: Request['status'], reviewNote?: string) => {
     setData((d) => ({
       ...d,
@@ -1061,6 +1076,7 @@ export function useHrData() {
       setPdiGoalQuestions,
       answerPdiGoal,
       deletePdi,
+      deleteFeedback,
       updateRequestStatus,
       createRequest,
       addVacation,

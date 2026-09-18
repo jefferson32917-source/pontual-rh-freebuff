@@ -129,8 +129,8 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
       .map((s) => s.trim())
       .filter(Boolean)
       .map((label, i) => ({ id: `s${i + 1}`, label: label.slice(0, 200), done: false, progress: 0 }))
-    if (!pdiTarget || !pdiTitle.trim() || !pdiDue || steps.length === 0) {
-      setPdiError('Preencha colaborador, título, prazo e ao menos uma etapa (uma por linha).')
+    if (!pdiTarget || !pdiTitle.trim() || steps.length === 0) {
+      setPdiError('Preencha colaborador, título e ao menos uma etapa (uma por linha).')
       return
     }
     // Metas: perguntas com tipo (sim/não ou opções)
@@ -161,7 +161,7 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
         employeeId: pdiTarget,
         title: pdiTitle.trim().slice(0, 140),
         description: pdiDescription.trim().slice(0, 400),
-        dueDate: pdiDue,
+        dueDate: pdiDue || '',
         createdBy: user.id,
         steps,
         goalsEnabled: pdiGoalsEnabled,
@@ -341,13 +341,13 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
             </div>
             <div>
               <label htmlFor="pdi-desc" className="mb-1.5 block text-sm font-medium text-slate-700">
-                Descrição
+                Descrição <span className="font-normal text-slate-400">(opcional)</span>
               </label>
               <textarea id="pdi-desc" className="input min-h-[56px] resize-y" maxLength={400} value={pdiDescription} onChange={(e) => setPdiDescription(e.target.value)} />
             </div>
             <div>
               <label htmlFor="pdi-due" className="mb-1.5 block text-sm font-medium text-slate-700">
-                Prazo
+                Prazo <span className="font-normal text-slate-400">(opcional)</span>
               </label>
               <input id="pdi-due" type="date" className="input" value={pdiDue} onChange={(e) => setPdiDue(e.target.value)} />
             </div>
@@ -365,8 +365,8 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
             </div>
             {/* METAS: apoio para identificar se o conhecimento está sendo aplicado */}
             <div className="rounded-xl border border-slate-200 p-3.5">
-              <label className="flex items-center justify-between gap-3" htmlFor="pdi-goals-toggle">
-                <span>
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0">
                   <span className="block text-xs font-semibold text-slate-700">Ativar marcação de metas</span>
                   <span className="block text-[11px] text-slate-500">
                     Perguntas de acompanhamento (ex.: "Bateu meta?", satisfação com opções) que o colaborador responde durante o PDI.
@@ -374,15 +374,15 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                 </span>
                 <button
                   type="button"
-                  id="pdi-goals-toggle"
                   role="switch"
                   aria-checked={pdiGoalsEnabled}
+                  aria-label="Ativar marcação de metas"
                   className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${pdiGoalsEnabled ? 'bg-primary-600' : 'bg-slate-300'}`}
                   onClick={() => setPdiGoalsEnabled((v) => !v)}
                 >
                   <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${pdiGoalsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
-              </label>
+              </div>
               {pdiGoalsEnabled && (
                 <div className="mt-3 space-y-3">
                   <textarea
@@ -502,11 +502,11 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                 <li key={p.id} className="rounded-xl border border-slate-100 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-slate-900">{p.title}</p>
-                      <p className="truncate text-xs text-slate-500">
-                        {owner?.name ?? '—'} · prazo {formatDate(p.dueDate)}
-                        {p.steps && p.steps.length > 0 ? ` · ${doneSteps}/${p.steps.length} etapas` : ''}
-                      </p>
+                      <p className="truncate text-sm font-semibold text-slate-900">{p.title}</p>                    <p className="truncate text-xs text-slate-500">
+                      {owner?.name ?? '—'}
+                      {p.dueDate ? ` · prazo ${formatDate(p.dueDate)}` : ' · sem prazo'}
+                      {p.steps && p.steps.length > 0 ? ` · ${doneSteps}/${p.steps.length} etapas` : ''}
+                    </p>
                     </div>
                     <StatusBadge tone={p.status === 'atrasado' ? 'rose' : p.status === 'concluido' ? 'teal' : 'primary'}>
                       {p.status === 'em_andamento' ? 'Em andamento' : p.status === 'concluido' ? 'Concluído' : 'Atrasado'}
@@ -518,6 +518,18 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                   <div className="mt-2 flex gap-2">
                     <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setViewing({ type: 'pdi', id: p.id })}>
                       Ver etapas e histórico
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary px-3 py-1.5 text-xs text-rose-600"
+                      onClick={() => {
+                        if (window.confirm(`Excluir o PDI "${p.title}"? O colaborador perde o acesso e o histórico é removido.`)) {
+                          store.deletePdi(p.id)
+                          toast.success('PDI excluído.')
+                        }
+                      }}
+                    >
+                      Excluir
                     </button>
                   </div>
                 </li>
