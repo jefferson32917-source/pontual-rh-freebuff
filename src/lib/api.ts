@@ -132,6 +132,9 @@ function toPdi(r: any): Pdi {
     progress: r.progress,
     createdBy: r.created_by ?? undefined,
     steps: Array.isArray(r.steps) ? r.steps : [],
+    managerComments: Array.isArray(r.manager_comments) ? r.manager_comments : [],
+    goalsEnabled: r.goals_enabled ?? false,
+    goalQuestions: Array.isArray(r.goal_questions) ? r.goal_questions : [],
   }
 }
 
@@ -884,6 +887,8 @@ export async function apiCreatePdi(p: {
   dueDate: string
   createdBy: string
   steps: import('../types').PdiStep[]
+  goalsEnabled?: boolean
+  goalQuestions?: import('../types').PdiGoalQuestion[]
 }): Promise<string> {
   const sb = getSupabase()
   const { data, error } = await sb
@@ -897,6 +902,8 @@ export async function apiCreatePdi(p: {
       progress: 0,
       created_by: p.createdBy,
       steps: p.steps,
+      goals_enabled: p.goalsEnabled ?? false,
+      goal_questions: p.goalQuestions ?? [],
     })
     .select('id')
     .single()
@@ -907,10 +914,37 @@ export async function apiCreatePdi(p: {
 /** Salva as etapas do PDI (colaborador marca/desmarca) e recalcula o progresso. */
 export async function apiSavePdiSteps(pdiId: string, steps: import('../types').PdiStep[]): Promise<void> {
   const sb = getSupabase()
-  const done = steps.filter((s) => s.done).length
-  const progress = steps.length > 0 ? Math.round((done / steps.length) * 100) : 0
+  /** Progresso geral = média dos % das etapas (cada etapa avança 0–100). */
+  const progress =
+    steps.length > 0
+      ? Math.round(steps.reduce((acc, s) => acc + (s.progress ?? (s.done ? 100 : 0)), 0) / steps.length)
+      : 0
   const status = progress >= 100 ? 'concluido' : 'em_andamento'
   const { error } = await sb.from('pdis').update({ steps, progress, status }).eq('id', pdiId)
+  if (error) throw new Error(error.message)
+}
+
+/** Comentário do gestor no PDI (incentivo/orientação). */
+export async function apiAddPdiComment(
+  pdiId: string,
+  comments: import('../types').PdiComment[],
+): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('pdis').update({ manager_comments: comments }).eq('id', pdiId)
+  if (error) throw new Error(error.message)
+}
+
+/** Salva metas do PDI (flag + perguntas com as respostas do colaborador). */
+export async function apiSavePdiGoals(
+  pdiId: string,
+  goalsEnabled: boolean,
+  goalQuestions: import('../types').PdiGoalQuestion[],
+): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb
+    .from('pdis')
+    .update({ goals_enabled: goalsEnabled, goal_questions: goalQuestions })
+    .eq('id', pdiId)
   if (error) throw new Error(error.message)
 }
 

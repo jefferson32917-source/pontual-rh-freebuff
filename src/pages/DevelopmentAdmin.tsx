@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { HrStore } from '../lib/store'
-import type { Assessment, AssessmentKind, Pdi, PdiStep, User } from '../types'
+import type { Assessment, AssessmentKind, Pdi, PdiGoalQuestion, PdiStep, User } from '../types'
 import { formatDate, formatDateTime } from '../lib/format'
 import { Avatar, EmptyState, ProgressBar, SectionCard, StatusBadge } from '../components/ui'
 import { toast } from '../components/Toast'
@@ -44,6 +44,13 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
   const [pdiStepsText, setPdiStepsText] = useState('')
   const [pdiError, setPdiError] = useState<string | null>(null)
   const [savingPdi, setSavingPdi] = useState(false)
+  // ============ metas do PDI (apoio à aplicação do conhecimento) ============
+  const [pdiGoalsEnabled, setPdiGoalsEnabled] = useState(false)
+  const [pdiGoalsText, setPdiGoalsText] = useState('')
+  const [pdiGoalTypes, setPdiGoalTypes] = useState<('sim_nao' | 'opcoes')[]>([])
+  const [pdiGoalOptions, setPdiGoalOptions] = useState<string[][]>([])
+  /** Comentário do gestor por PDI (modal de acompanhamento). */
+  const [commentText, setCommentText] = useState('')
 
   /** Visualizador: respostas do questionário / etapas do PDI. */
   const [viewing, setViewing] = useState<{ type: 'assessment' | 'pdi'; id: string } | null>(null)
@@ -121,9 +128,31 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
       .split('\n')
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((label, i) => ({ id: `s${i + 1}`, label: label.slice(0, 200), done: false }))
+      .map((label, i) => ({ id: `s${i + 1}`, label: label.slice(0, 200), done: false, progress: 0 }))
     if (!pdiTarget || !pdiTitle.trim() || !pdiDue || steps.length === 0) {
       setPdiError('Preencha colaborador, título, prazo e ao menos uma etapa (uma por linha).')
+      return
+    }
+    // Metas: perguntas com tipo (sim/não ou opções)
+    const gq: PdiGoalQuestion[] = pdiGoalsEnabled
+      ? pdiGoalsText
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((text, i) => {
+            const type = pdiGoalTypes[i] ?? 'sim_nao'
+            const options = (pdiGoalOptions[i] ?? []).map((o) => o.trim()).filter(Boolean).slice(0, 10)
+            return {
+              id: `g${i + 1}`,
+              text: text.slice(0, 300),
+              type,
+              ...(type === 'opcoes' && options.length >= 2 ? { options } : {}),
+            }
+          })
+      : []
+    const badGoal = gq.find((q) => q.type === 'opcoes' && (q.options?.length ?? 0) < 2)
+    if (badGoal) {
+      setPdiError(`A meta "${badGoal.text.slice(0, 40)}…" é de opções — registre pelo menos 2 opções.`)
       return
     }
     setSavingPdi(true)
@@ -135,12 +164,18 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
         dueDate: pdiDue,
         createdBy: user.id,
         steps,
+        goalsEnabled: pdiGoalsEnabled,
+        goalQuestions: gq,
       })
       toast.success('Sucesso! PDI criado e disponibilizado ao colaborador.')
       setPdiTitle('')
       setPdiDescription('')
       setPdiStepsText('')
       setPdiDue('')
+      setPdiGoalsText('')
+      setPdiGoalTypes([])
+      setPdiGoalOptions([])
+      setPdiGoalsEnabled(false)
     } catch (err) {
       setPdiError(err instanceof Error ? err.message : 'Falha ao criar o PDI.')
     } finally {
@@ -328,6 +363,80 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                 onChange={(e) => setPdiStepsText(e.target.value)}
               />
             </div>
+            {/* METAS: apoio para identificar se o conhecimento está sendo aplicado */}
+            <div className="rounded-xl border border-slate-200 p-3.5">
+              <label className="flex items-center justify-between gap-3" htmlFor="pdi-goals-toggle">
+                <span>
+                  <span className="block text-xs font-semibold text-slate-700">Ativar marcação de metas</span>
+                  <span className="block text-[11px] text-slate-500">
+                    Perguntas de acompanhamento (ex.: "Bateu meta?", satisfação com opções) que o colaborador responde durante o PDI.
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  id="pdi-goals-toggle"
+                  role="switch"
+                  aria-checked={pdiGoalsEnabled}
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${pdiGoalsEnabled ? 'bg-primary-600' : 'bg-slate-300'}`}
+                  onClick={() => setPdiGoalsEnabled((v) => !v)}
+                >
+                  <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${pdiGoalsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                </button>
+              </label>
+              {pdiGoalsEnabled && (
+                <div className="mt-3 space-y-3">
+                  <textarea
+                    className="input min-h-[80px] resize-y"
+                    placeholder={'Bateu meta?\nVocê conseguiu entender esse módulo?\nQual seu nível de satisfação com esse treinamento?'}
+                    value={pdiGoalsText}
+                    onChange={(e) => {
+                      setPdiGoalsText(e.target.value)
+                      const count = e.target.value.split('\n').filter((l) => l.trim()).length
+                      setPdiGoalTypes((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? 'sim_nao'))
+                      setPdiGoalOptions((prev) => Array.from({ length: count }, (_, i) => prev[i] ?? []))
+                    }}
+                  />
+                  <p className="text-[11px] text-slate-500">Uma pergunta por linha. Para cada uma, escolha o tipo de resposta:</p>
+                  {pdiGoalTypes.map((gt, i) => (
+                    <div key={i} className="rounded-xl border border-slate-200 p-3">
+                      <p className="truncate text-xs font-medium text-slate-700">{i + 1}. {pdiGoalsText.split('\n').filter((l) => l.trim())[i] ?? '—'}</p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPdiGoalTypes((prev) => prev.map((v, j) => (j === i ? 'sim_nao' : v)))}
+                          className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${gt === 'sim_nao' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-600'}`}
+                          aria-pressed={gt === 'sim_nao'}
+                        >
+                          ✓ Sim / Não
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPdiGoalTypes((prev) => prev.map((v, j) => (j === i ? 'opcoes' : v)))}
+                          className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold ${gt === 'opcoes' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-slate-200 text-slate-600'}`}
+                          aria-pressed={gt === 'opcoes'}
+                        >
+                          ☑ Opções de marcar
+                        </button>
+                      </div>
+                      {gt === 'opcoes' && (
+                        <div className="mt-2">
+                          <label htmlFor={`gopt-${i}`} className="mb-1 block text-[11px] font-medium text-slate-500">
+                            Opções — uma por linha (mín. 2)
+                          </label>
+                          <textarea
+                            id={`gopt-${i}`}
+                            className="input min-h-[64px] resize-y text-sm"
+                            placeholder={'Péssimo\nRuim\nRegular\nBom\nExcelente'}
+                            value={(pdiGoalOptions[i] ?? []).join('\n')}
+                            onChange={(e) => setPdiGoalOptions((prev) => prev.map((v, j) => (j === i ? e.target.value.split('\n') : v)))}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             {pdiError && (
               <p role="alert" className="rounded-xl bg-rose-50 px-3.5 py-2.5 text-sm font-medium text-rose-700">
                 {pdiError}
@@ -462,21 +571,80 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                   <ProgressBar value={viewedPdi.progress} />
                 </div>
                 <ul className="mt-4 space-y-2.5">
-                  {(viewedPdi.steps ?? []).map((s) => (
-                    <li key={s.id} className={`flex items-start gap-2.5 rounded-xl border p-3 ${s.done ? 'border-teal-200 bg-teal-50/50' : 'border-slate-100'}`}>
-                      <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${s.done ? 'bg-teal-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                        {s.done ? '✓' : ''}
-                      </span>
-                      <div className="min-w-0">
-                        <p className={`text-sm ${s.done ? 'font-medium text-teal-800' : 'text-slate-700'}`}>{s.label}</p>
-                        {s.doneAt && <p className="mt-0.5 text-xs text-teal-600">Concluída em {formatDateTime(s.doneAt)}</p>}
-                      </div>
-                    </li>
-                  ))}
+                  {(viewedPdi.steps ?? []).map((s) => {
+                    const pct = s.progress ?? (s.done ? 100 : 0)
+                    return (
+                      <li key={s.id} className={`rounded-xl border p-3 ${pct >= 100 ? 'border-teal-200 bg-teal-50/50' : 'border-slate-100'}`}>
+                        <div className="flex items-start gap-2.5">
+                          <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${pct >= 100 ? 'bg-teal-500 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                            {pct >= 100 ? '✓' : `${pct}%`}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-sm ${pct >= 100 ? 'font-medium text-teal-800' : 'text-slate-700'}`}>{s.label}</p>
+                            {pct >= 100 && s.doneAt && <p className="mt-0.5 text-xs text-teal-600">Concluída em {formatDateTime(s.doneAt)}</p>}
+                            {pct < 100 && <div className="mt-1.5 max-w-[220px]"><ProgressBar value={pct} /></div>}
+                          </div>
+                        </div>
+                      </li>
+                    )
+                  })}
                   {(!viewedPdi.steps || viewedPdi.steps.length === 0) && (
                     <li className="text-sm italic text-slate-400">Este PDI não tem etapas cadastradas (usa progresso manual).</li>
                   )}
                 </ul>
+
+                {/* Metas: respostas do colaborador em tempo real */}
+                {viewedPdi.goalsEnabled && (viewedPdi.goalQuestions ?? []).length > 0 && (
+                  <div className="mt-5 rounded-xl border border-primary-100 bg-primary-50/40 p-4">
+                    <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Metas — respostas do colaborador</p>
+                    <ul className="mt-2.5 space-y-2">
+                      {(viewedPdi.goalQuestions ?? []).map((gq) => (
+                        <li key={gq.id} className="rounded-lg bg-white px-3 py-2">
+                          <p className="text-sm font-medium text-slate-700">{gq.text}</p>
+                          <p className={`mt-0.5 text-xs font-semibold ${gq.answer ? 'text-teal-700' : 'text-slate-400'}`}>
+                            {gq.answer ? `→ ${gq.answer}${gq.answeredAt ? ` · ${formatDateTime(gq.answeredAt)}` : ''}` : 'Aguardando resposta…'}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Comentários do gestor: incentivo/orientação */}
+                <div className="mt-5">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Mensagens do gestor</p>
+                  {(viewedPdi.managerComments ?? []).length > 0 && (
+                    <ul className="mt-2 space-y-2">
+                      {(viewedPdi.managerComments ?? []).map((c) => (
+                        <li key={c.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                          <p className="text-sm text-slate-700">{c.message}</p>
+                          <p className="mt-0.5 text-[11px] text-slate-400">{formatDateTime(c.createdAt)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      className="input flex-1"
+                      maxLength={500}
+                      placeholder="Escreva uma mensagem de incentivo ou orientação…"
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary px-4 py-2 text-sm"
+                      disabled={!commentText.trim()}
+                      onClick={() => {
+                        if (!viewedPdi || !commentText.trim()) return
+                        store.addPdiComment(viewedPdi.id, user.id, commentText)
+                        setCommentText('')
+                      }}
+                    >
+                      Comentar
+                    </button>
+                  </div>
+                </div>
               </>
             )}
             <div className="mt-5 text-right">

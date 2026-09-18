@@ -91,16 +91,44 @@ export interface Pdi {
   progress: number // 0-100
   /** Quem criou o PDI (gestor) */
   createdBy?: string
-  /** Etapas do plano — o colaborador marca cada uma como concluída */
+  /** Etapas do plano — cada uma avança em % (0–100) */
   steps?: PdiStep[]
+  /** Mensagens do gestor durante o desenvolvimento (incentivo/orientação) */
+  managerComments?: PdiComment[]
+  /** Metas ativadas pelo gestor: perguntas de acompanhamento da aplicação */
+  goalsEnabled?: boolean
+  /** Perguntas de meta (ex.: "Bateu meta?", satisfação com opções) */
+  goalQuestions?: PdiGoalQuestion[]
+}
+
+export interface PdiComment {
+  id: string
+  /** gestor autor */
+  authorId: string
+  message: string
+  createdAt: string
 }
 
 export interface PdiStep {
   id: string
   label: string
   done: boolean
+  /** Progresso da etapa em % (0–100); done é derivado (>=100) */
+  progress?: number
   /** ISO datetime da conclusão (rastreabilidade) */
   doneAt?: string
+}
+
+export interface PdiGoalQuestion {
+  id: string
+  text: string
+  /** 'sim_nao' = marca Sim/Não; 'opcoes' = escolhe entre options */
+  type: 'sim_nao' | 'opcoes'
+  /** Opções quando type === 'opcoes' (ex.: Péssimo…Excelente) */
+  options?: string[]
+  /** Resposta do colaborador */
+  answer?: string
+  answeredAt?: string
 }
 
 export type PdiStatus = 'em_andamento' | 'concluido' | 'atrasado'

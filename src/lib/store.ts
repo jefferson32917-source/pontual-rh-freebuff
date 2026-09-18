@@ -16,7 +16,7 @@ import type {
   VacationRequest,
   Vacancy,
 } from '../types'
-import type { Assessment, AssessmentQuestion, PdiStep, TimeEntryAdjustment } from '../types'
+import type { Assessment, AssessmentQuestion, PdiComment, PdiGoalQuestion, PdiStep, TimeEntryAdjustment } from '../types'
 import * as api from './api'
 import { getSupabase } from './supabase'
 import { nextMatricula, pickAvatarColor } from './matricula'
@@ -507,7 +507,16 @@ export function useHrData() {
 
   /** PDI criado pelo gestor com etapas. */
   const createPdi = useCallback(
-    (p: { employeeId: string; title: string; description: string; dueDate: string; createdBy: string; steps: PdiStep[] }): Promise<void> => {
+    (p: {
+      employeeId: string
+      title: string
+      description: string
+      dueDate: string
+      createdBy: string
+      steps: PdiStep[]
+      goalsEnabled?: boolean
+      goalQuestions?: PdiGoalQuestion[]
+    }): Promise<void> => {
       const optimistic: Pdi = {
         id: `local_pdi${Date.now()}`,
         employeeId: p.employeeId,
@@ -518,6 +527,9 @@ export function useHrData() {
         progress: 0,
         createdBy: p.createdBy,
         steps: p.steps,
+        goalsEnabled: p.goalsEnabled ?? false,
+        goalQuestions: p.goalQuestions ?? [],
+        managerComments: [],
       }
       setData((d) => ({ ...d, pdis: [optimistic, ...d.pdis] }))
       return api
@@ -541,10 +553,11 @@ export function useHrData() {
           if (p.id !== pdiId || !p.steps) return p
           const now = new Date().toISOString()
           const steps = p.steps.map((s) =>
-            s.id === stepId ? { ...s, done: !s.done, doneAt: !s.done ? now : undefined } : s,
+            s.id === stepId
+              ? { ...s, done: !s.done, progress: !s.done ? 100 : 0, doneAt: !s.done ? now : undefined }
+              : s,
           )
-          const doneCount = steps.filter((s) => s.done).length
-          const progress = steps.length > 0 ? Math.round((doneCount / steps.length) * 100) : 0
+          const progress = steps.length > 0 ? Math.round(steps.reduce((acc, s) => acc + (s.progress ?? (s.done ? 100 : 0)), 0) / steps.length) : 0
           return {
             ...p,
             steps,
@@ -558,10 +571,128 @@ export function useHrData() {
       const current = data.pdis.find((p) => p.id === pdiId)
       if (current?.steps) {
         const steps = current.steps.map((s) =>
-          s.id === stepId ? { ...s, done: !s.done, doneAt: !s.done ? new Date().toISOString() : undefined } : s,
+          s.id === stepId
+            ? { ...s, done: !s.done, progress: !s.done ? 100 : 0, doneAt: !s.done ? new Date().toISOString() : undefined }
+            : s,
         )
         void api.apiSavePdiSteps(pdiId, steps).catch(() => void reload())
       }
+    },
+    [data.pdis, reload],
+  )
+
+  /**
+   * Colaborador avança o % de uma etapa (0–100 em passos de 10).
+   * Ex.: treinamento de 10 módulos → cada módulo = +10%.
+   * Marca done/doneAt automaticamente ao chegar em 100.
+   */
+  const setPdiStepProgress = useCallback(
+    (pdiId: string, stepId: string, progress: number) => {
+      const clamped = Math.max(0, Math.min(100, Math.round(progress)))
+      const now = new Date().toISOString()
+      setData((d) => {
+        const next = d.pdis.map((p) => {
+          if (p.id !== pdiId || !p.steps) return p
+          const steps = p.steps.map((s) =>
+            s.id === stepId
+              ? { ...s, progress: clamped, done: clamped >= 100, doneAt: clamped >= 100 ? (s.doneAt ?? now) : undefined }
+              : s,
+          )
+          const overall = steps.length > 0 ? Math.round(steps.reduce((acc, s) => acc + (s.progress ?? 0), 0) / steps.length) : 0
+          return {
+            ...p,
+            steps,
+            progress: overall,
+            status: (overall >= 100 ? 'concluido' : 'em_andamento') as Pdi['status'],
+          }
+        })
+        return { ...d, pdis: next }
+      })
+      if (pdiId.startsWith('local_')) return
+      const current = data.pdis.find((p) => p.id === pdiId)
+      if (current?.steps) {
+        const steps = current.steps.map((s) =>
+          s.id === stepId
+            ? { ...s, progress: clamped, done: clamped >= 100, doneAt: clamped >= 100 ? (s.doneAt ?? now) : undefined }
+            : s,
+        )
+        void api.apiSavePdiSteps(pdiId, steps).catch(() => void reload())
+      }
+    },
+    [data.pdis, reload],
+  )
+
+  /** Gestor comenta no PDI em desenvolvimento (incentivo/orientação). */
+  const addPdiComment = useCallback(
+    (pdiId: string, authorId: string, message: string) => {
+      const comment: PdiComment = {
+        id: `c${Date.now()}`,
+        authorId,
+        message: message.trim().slice(0, 500),
+        createdAt: new Date().toISOString(),
+      }
+      let comments: PdiComment[] = []
+      setData((d) => {
+        const next = d.pdis.map((p) => {
+          if (p.id !== pdiId) return p
+          comments = [...(p.managerComments ?? []), comment]
+          return { ...p, managerComments: comments }
+        })
+        return { ...d, pdis: next }
+      })
+      if (pdiId.startsWith('local_')) return
+      void api.apiAddPdiComment(pdiId, comments).catch(() => void reload())
+      toast.success('Sucesso! Comentário enviado com êxito.')
+    },
+    [reload],
+  )
+
+  /** Gestor ativa/desativa as metas de um PDI. */
+  const setPdiGoalsEnabled = useCallback(
+    (pdiId: string, enabled: boolean) => {
+      setData((d) => ({
+        ...d,
+        pdis: d.pdis.map((p) => (p.id === pdiId ? { ...p, goalsEnabled: enabled } : p)),
+      }))
+      if (pdiId.startsWith('local_')) return
+      const current = data.pdis.find((p) => p.id === pdiId)
+      void api.apiSavePdiGoals(pdiId, enabled, current?.goalQuestions ?? []).catch(() => void reload())
+    },
+    [data.pdis, reload],
+  )
+
+  /** Gestor cadastra/atualiza as perguntas de meta de um PDI. */
+  const setPdiGoalQuestions = useCallback(
+    (pdiId: string, questions: PdiGoalQuestion[]) => {
+      setData((d) => ({
+        ...d,
+        pdis: d.pdis.map((p) => (p.id === pdiId ? { ...p, goalQuestions: questions } : p)),
+      }))
+      if (pdiId.startsWith('local_')) return
+      const current = data.pdis.find((p) => p.id === pdiId)
+      void api.apiSavePdiGoals(pdiId, current?.goalsEnabled ?? true, questions).catch(() => void reload())
+    },
+    [data.pdis, reload],
+  )
+
+  /** Colaborador responde uma pergunta de meta (sim/não ou opção). */
+  const answerPdiGoal = useCallback(
+    (pdiId: string, questionId: string, answer: string) => {
+      const now = new Date().toISOString()
+      let questions: PdiGoalQuestion[] = []
+      setData((d) => {
+        const next = d.pdis.map((p) => {
+          if (p.id !== pdiId) return p
+          questions = (p.goalQuestions ?? []).map((q) =>
+            q.id === questionId ? { ...q, answer, answeredAt: now } : q,
+          )
+          return { ...p, goalQuestions: questions }
+        })
+        return { ...d, pdis: next }
+      })
+      if (pdiId.startsWith('local_')) return
+      const current = data.pdis.find((p) => p.id === pdiId)
+      void api.apiSavePdiGoals(pdiId, current?.goalsEnabled ?? true, questions).catch(() => void reload())
     },
     [data.pdis, reload],
   )
@@ -924,6 +1055,11 @@ export function useHrData() {
       deleteAssessment,
       createPdi,
       togglePdiStep,
+      setPdiStepProgress,
+      addPdiComment,
+      setPdiGoalsEnabled,
+      setPdiGoalQuestions,
+      answerPdiGoal,
       deletePdi,
       updateRequestStatus,
       createRequest,
