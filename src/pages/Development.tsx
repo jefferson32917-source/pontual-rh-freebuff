@@ -53,10 +53,10 @@ export default function Development({ user, store }: { user: User; store: HrStor
         <p className="mt-1 text-sm text-slate-500">PDIs, feedbacks e evolução de carreira.</p>
       </header>
 
-      {/* ============ Questionários e avaliações que preciso responder ============ */}
+      {/* ============ Feedbacks estruturados e avaliações que preciso responder ============ */}
       {myAssessments.length > 0 && (
         <SectionCard
-          title="Questionários e avaliações"
+          title="Feedbacks e avaliações para responder"
           action={
             <StatusBadge tone={myAssessments.some((a) => !a.completedAt) ? 'amber' : 'teal'}>
               {myAssessments.filter((a) => !a.completedAt).length} pendentes

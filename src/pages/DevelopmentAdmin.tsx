@@ -118,12 +118,12 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
     <div className="space-y-6">
       <header>
         <h1 className="text-2xl font-bold text-slate-900">Desenvolvimento do time</h1>
-        <p className="mt-1 text-sm text-slate-500">Crie questionários, avaliações e PDIs — e acompanhe a evolução em tempo real.</p>
+        <p className="mt-1 text-sm text-slate-500">Crie feedbacks estruturados, avaliações e PDIs — e acompanhe a evolução em tempo real.</p>
       </header>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* ============ Aplicar questionário/avaliação ============ */}
-        <SectionCard title="Aplicar questionário ou avaliação">
+        {/* ============ Aplicar feedback/avaliação ============ */}
+        <SectionCard title="Aplicar feedback ou avaliação">
           <form onSubmit={handleApplyAssessment} className="space-y-4">
             <div className="flex gap-2">
               {(['questionario', 'avaliacao'] as AssessmentKind[]).map((k) => (
@@ -136,7 +136,7 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                   }`}
                   aria-pressed={kind === k}
                 >
-                  {k === 'questionario' ? 'Questionário' : 'Avaliação'}
+                  {k === 'questionario' ? 'Feedback' : 'Avaliação'}
                 </button>
               ))}
             </div>
@@ -247,9 +247,9 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
       </div>
 
       {/* ============ Acompanhamento dos questionários ============ */}
-      <SectionCard title="Questionários e avaliações aplicados" action={<StatusBadge tone="primary">{assessments.length}</StatusBadge>}>
+      <SectionCard title="Feedbacks e avaliações aplicados" action={<StatusBadge tone="primary">{assessments.length}</StatusBadge>}>
         {assessments.length === 0 ? (
-          <EmptyState message="Nenhum questionário ou avaliação aplicado ainda." />
+          <EmptyState message="Nenhum feedback ou avaliação aplicado ainda." />
         ) : (
           <ul className="space-y-3">
             {assessments.map((a) => {
@@ -262,7 +262,7 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-slate-900">{a.title}</p>
                     <p className="truncate text-xs text-slate-500">
-                      {a.kind === 'questionario' ? 'Questionário' : 'Avaliação'} · {to?.name ?? '—'} · {formatDateTime(a.createdAt)}
+                      {a.kind === 'questionario' ? 'Feedback' : 'Avaliação'} · {to?.name ?? '—'} · {formatDateTime(a.createdAt)}
                     </p>
                     <div className="mt-2 max-w-xs">
                       <ProgressBar value={a.questions.length > 0 ? Math.round((answered / a.questions.length) * 100) : 0} />

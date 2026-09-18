@@ -3,6 +3,7 @@ import type { HrStore } from '../../lib/store'
 import type { PayrollRun, User } from '../../types'
 import { formatDate, formatDateTime, pdiStatusLabels, referenceShortLabel } from '../../lib/format'
 import { Avatar, EmptyState, ProgressBar, SectionCard, StatCard, StatusBadge } from '../../components/ui'
+import { Link } from 'react-router-dom'
 import HoleriteSheet from '../../components/HoleriteSheet'
 import { downloadPayrollPdf } from '../../lib/pdf'
 import { printPayroll } from '../../lib/print'
@@ -32,6 +33,9 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
   )
   /** Feedbacks aguardando confirmação de leitura (botão obrigatório). */
   const unreadFeedbacks = myFeedbacks.filter((f) => !f.readAt)
+  /** Feedbacks estruturados/avaliações aplicados a mim (respondidos na aba Desenvolvimento). */
+  const myAssessments = useMemo(() => data.assessments.filter((a) => a.assignedTo === user.id), [data.assessments, user.id])
+  const pendingAssessments = myAssessments.filter((a) => !a.completedAt)
   const pendingRequests = data.requests.filter(
     (r) => r.employeeId === user.id && r.status === 'pendente',
   ).length
@@ -113,6 +117,41 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
 
       {/* Bater ponto direto do painel — sem abrir a aba Ponto */}
       <QuickPunch user={user} store={store} />
+
+      {/* Atalho: feedbacks estruturados / avaliações a responder */}
+      {myAssessments.length > 0 && (
+        <SectionCard
+          title="Feedbacks e avaliações para responder"
+          action={
+            <StatusBadge tone={pendingAssessments.length > 0 ? 'amber' : 'teal'}>
+              {pendingAssessments.length > 0 ? `${pendingAssessments.length} pendentes` : 'em dia'}
+            </StatusBadge>
+          }
+        >
+          <ul className="space-y-2">
+            {myAssessments.map((a) => {
+              const answered = a.questions.filter((q) => (q.answer ?? '').trim().length > 0).length
+              return (
+                <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-900">{a.title}</p>
+                    <p className="text-xs text-slate-500">
+                      Respondido {answered} de {a.questions.length} perguntas
+                    </p>
+                  </div>
+                  {a.completedAt ? (
+                    <StatusBadge tone="teal">Concluído</StatusBadge>
+                  ) : (
+                    <Link to="/meu-desenvolvimento" className="btn-primary px-3 py-1.5 text-xs">
+                      Responder agora
+                    </Link>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </SectionCard>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard title="Minhas tarefas">

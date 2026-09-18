@@ -292,13 +292,15 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
           )}
         </SectionCard>
 
-        <SectionCard title="Saldos por pessoa">
+        <SectionCard title={canApprove ? 'Saldos por pessoa (equipe)' : 'Meu saldo de férias'}>
           <ul className="space-y-2">
             {data.users
               .filter((u) =>
-                user.role === 'gestor'
-                  ? u.companyId === user.companyId && (u.role === 'colaborador' || u.id === user.id)
-                  : true,
+                user.role === 'super_admin'
+                  ? true // SA vê tudo
+                  : user.role === 'gestor'
+                    ? u.companyId === user.companyId && (u.role === 'colaborador' || u.id === user.id)
+                    : u.id === user.id, // colaborador: EXCLUSIVAMENTE o próprio saldo
               )
               .map((u) => {
                 const scheduled = data.vacations

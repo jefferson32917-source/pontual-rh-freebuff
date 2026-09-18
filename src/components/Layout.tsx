@@ -51,6 +51,7 @@ function navFor(role: Role): NavItem[] {
     { to: '/ponto', label: 'Ponto', icon: iconPaths.ponto },
     { to: '/ferias', label: 'Férias', icon: iconPaths.ferias },
     { to: '/requisicoes', label: 'Requisições', icon: iconPaths.requisicoes },
+    { to: '/meu-desenvolvimento', label: 'Desenvolvimento', icon: iconPaths.desenvolvimento },
     { to: '/perfil', label: 'Perfil', icon: iconPaths.perfil },
   ]
 }
