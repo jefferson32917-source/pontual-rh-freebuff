@@ -72,6 +72,9 @@ create policy feedbacks_mark_read on public.feedbacks
   with check (to_id = auth.uid());
 
 -- 4. RPC load_heavy_data inclui assessments ------------------------------
+-- Se a função já existe com outra assinatura (TABLE vs jsonb), o
+-- CREATE OR REPLACE falha com 42P13 — por isso o DROP explícito antes.
+drop function if exists public.load_heavy_data();
 create or replace function public.load_heavy_data()
 returns jsonb
 language sql
