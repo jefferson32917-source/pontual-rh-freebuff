@@ -349,6 +349,16 @@ export function useHrData() {
       users: d.users.map((u) => (u.id === id ? { ...u, ...patch } : u)),
     }))
     if (id.startsWith('local_')) return
+    // Telefone próprio: qualquer usuário (inclusive colaborador) edita o seu —
+    // RPC dedicada; admin_update_user nega colaborador por design.
+    if (
+      Object.keys(patch).length === 1 &&
+      patch.phone !== undefined &&
+      id === data.users.find((u) => u.id === id)?.id
+    ) {
+      void api.apiUpdateOwnPhone(patch.phone).catch(() => void reload())
+      return
+    }
     if (patch.requiresPunch !== undefined) {
       void api.apiUpdateUserFlags(id, { requiresPunch: patch.requiresPunch }).catch(() => void reload())
     }
@@ -508,9 +518,20 @@ export function useHrData() {
   }, [reload])
 
   const deleteAssessment = useCallback((id: string) => {
+    const target = data.assessments.find((x) => x.id === id)
     setData((d) => ({ ...d, assessments: d.assessments.filter((x) => x.id !== id) }))
-    if (id.startsWith('local_')) return
-    void api.apiDeleteAssessment(id).catch(() => void reload())
+    if (!target || id.startsWith('local_')) return
+    void api
+      .apiTrashItem('assessments', id, target as unknown as Record<string, unknown>)
+      .catch(() => void reload())
+  }, [data.assessments, reload])
+
+  /** Restaura uma avaliação/feedback estruturado da lixeira. */
+  const restoreAssessment = useCallback((id: string) => {
+    void api
+      .apiRestoreFromTrash('assessments', id)
+      .then(() => void reload())
+      .catch(() => void reload())
   }, [reload])
 
   /** PDI criado pelo gestor com etapas. */
@@ -706,16 +727,39 @@ export function useHrData() {
   )
 
   const deletePdi = useCallback((pdiId: string) => {
+    const target = data.pdis.find((p) => p.id === pdiId)
     setData((d) => ({ ...d, pdis: d.pdis.filter((p) => p.id !== pdiId) }))
-    if (pdiId.startsWith('local_')) return
-    void api.apiDeletePdi(pdiId).catch(() => void reload())
+    if (!target || pdiId.startsWith('local_')) return
+    // SOFT DELETE: vai para a lixeira (restaurável por 30 dias)
+    void api
+      .apiTrashItem('pdis', pdiId, target as unknown as Record<string, unknown>)
+      .catch(() => void reload())
+  }, [data.pdis, reload])
+
+  /** Restaura um PDI da lixeira. */
+  const restorePdi = useCallback((pdiId: string) => {
+    void api
+      .apiRestoreFromTrash('pdis', pdiId)
+      .then(() => void reload())
+      .catch(() => void reload())
   }, [reload])
 
-  /** Gestor exclui um feedback que enviou (colaborador deixa de ver). */
+  /** Gestor exclui um feedback que enviou — vai para a lixeira (30 dias). */
   const deleteFeedback = useCallback((id: string) => {
+    const target = data.feedbacks.find((f) => f.id === id)
     setData((d) => ({ ...d, feedbacks: d.feedbacks.filter((f) => f.id !== id) }))
-    if (id.startsWith('local_')) return
-    void api.apiDeleteFeedback(id).catch(() => void reload())
+    if (!target || id.startsWith('local_')) return
+    void api
+      .apiTrashItem('feedbacks', id, target as unknown as Record<string, unknown>)
+      .catch(() => void reload())
+  }, [data.feedbacks, reload])
+
+  /** Restaura um feedback da lixeira. */
+  const restoreFeedback = useCallback((id: string) => {
+    void api
+      .apiRestoreFromTrash('feedbacks', id)
+      .then(() => void reload())
+      .catch(() => void reload())
   }, [reload])
 
   const updateRequestStatus = useCallback((id: string, status: Request['status'], reviewNote?: string) => {
@@ -1068,6 +1112,7 @@ export function useHrData() {
       createAssessment,
       saveAssessmentAnswers,
       deleteAssessment,
+      restoreAssessment,
       createPdi,
       togglePdiStep,
       setPdiStepProgress,
@@ -1076,7 +1121,9 @@ export function useHrData() {
       setPdiGoalQuestions,
       answerPdiGoal,
       deletePdi,
+      restorePdi,
       deleteFeedback,
+      restoreFeedback,
       updateRequestStatus,
       createRequest,
       addVacation,

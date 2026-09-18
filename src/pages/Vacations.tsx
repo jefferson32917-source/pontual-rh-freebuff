@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import type { HrStore } from '../lib/store'
 import type { User, VacationRequest } from '../types'
 import { formatDate, vacationStatusLabels } from '../lib/format'
+import { accrualLabel, effectiveVacationBalance, fullBalanceDate } from '../lib/vacationBalance'
 import { EmptyState, SectionCard, StatCard, StatusBadge } from '../components/ui'
 
 function diffDays(start: string, end: string): number {
@@ -10,34 +11,6 @@ function diffDays(start: string, end: string): number {
   const e = new Date(end)
   if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0
   return Math.floor((e.getTime() - s.getTime()) / 86_400_000) + 1
-}
-
-/**
- * Data em que o colaborador adquire os próximos 30 dias de férias
- * (admissão + 12 meses, rolada ano a ano). Simples e clara:
- * "30 dias disponíveis em DD/MM/AAAA".
- */
-function nextAccrualDate(admissionDate: string): { date: string; acquired: boolean } {
-  const adm = new Date(admissionDate + 'T12:00:00')
-  if (Number.isNaN(adm.getTime())) return { date: '—', acquired: false }
-  const now = new Date()
-  // período aquisitivo atual: quantos anos completos desde a admissão
-  let years = now.getFullYear() - adm.getFullYear()
-  const anniversary = new Date(adm)
-  anniversary.setFullYear(adm.getFullYear() + years)
-  if (anniversary.getTime() > now.getTime()) {
-    years -= 1
-    anniversary.setFullYear(adm.getFullYear() + years)
-  }
-  // o período aquisitivo vigente completou em `anniversary` (adquirido);
-  // o PRÓXIMO completa em anniversary + 1 ano
-  const next = new Date(anniversary)
-  next.setFullYear(anniversary.getFullYear() + 1)
-  const acquired = anniversary.getTime() <= now.getTime()
-  return {
-    date: next.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }),
-    acquired,
-  }
 }
 
 export default function Vacations({ user, store }: { user: User; store: HrStore }) {
@@ -80,7 +53,9 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
 
   const myHistory = history.filter((h) => h.employeeId === user.id)
   const totalEnjoyed = myHistory.reduce((acc, h) => acc + h.days, 0)
-  const myAccrual = nextAccrualDate(user.admissionDate)
+  /** Saldo PROPORCIONAL: adquire 2,5 dias/mês desde a admissão, menos o já utilizado/debitado. */
+  const myUsed = Math.max(0, 30 - user.vacationBalanceDays)
+  const myBalance = effectiveVacationBalance(user.admissionDate, myUsed)
 
   const pending = visible.filter((v) => v.status === 'pendente')
   const approvedUpcoming = visible.filter((v) => {
@@ -97,8 +72,8 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
       setError('Informe um período válido (data final igual ou posterior à inicial).')
       return
     }
-    if (days > user.vacationBalanceDays) {
-      setError(`Saldo insuficiente: você tem ${user.vacationBalanceDays} dias disponíveis.`)
+    if (days > myBalance) {
+      setError(`Saldo insuficiente: você tem ${String(myBalance).replace('.', ',')} dias proporcionais disponíveis.`)
       return
     }
     const vacation: VacationRequest = {
@@ -138,9 +113,9 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
-          label="Seu saldo"
-          value={`${user.vacationBalanceDays} dias`}
-          hint={`30 dias disponíveis em ${myAccrual.date}`}
+          label="Seu saldo (proporcional)"
+          value={`${String(myBalance).replace('.', ',')} dias`}
+          hint={`acréscimo diário · já gozou ${totalEnjoyed} dias`}
           tone="primary"
         />
         <StatCard label="Solicitações pendentes" value={pending.length} hint="aguardando decisão" tone="amber" />
@@ -311,11 +286,13 @@ export default function Vacations({ user, store }: { user: User; store: HrStore 
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{u.name}</p>
                       <p className="text-xs text-slate-500">
-                        {scheduled > 0 ? `${scheduled} dias agendados` : 'nada agendado'} · 30 dias em{' '}
-                        {nextAccrualDate(u.admissionDate).date}
+                        {scheduled > 0 ? `${scheduled} dias agendados` : 'nada agendado'} ·{' '}
+                        {accrualLabel(u.admissionDate)} · completo em {fullBalanceDate(u.admissionDate)}
                       </p>
                     </div>
-                    <span className="text-sm font-bold text-primary-700">{u.vacationBalanceDays} dias</span>
+                    <span className="text-sm font-bold text-primary-700">
+                      {String(effectiveVacationBalance(u.admissionDate, Math.max(0, 30 - u.vacationBalanceDays))).replace('.', ',')} dias
+                    </span>
                   </li>
                 )
               })}

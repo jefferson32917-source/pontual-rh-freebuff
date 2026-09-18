@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import type { HrStore } from '../lib/store'
 import type { Assessment, AssessmentKind, Pdi, PdiGoalQuestion, PdiStep, User } from '../types'
@@ -54,6 +54,36 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
 
   /** Visualizador: respostas do questionário / etapas do PDI. */
   const [viewing, setViewing] = useState<{ type: 'assessment' | 'pdi'; id: string } | null>(null)
+  const [showTrash, setShowTrash] = useState(false)
+
+  // ===== Lixeira: itens excluídos nos últimos 30 dias (restauráveis) =====
+  const [trash, setTrash] = useState<import('../types').Trash[]>([])
+  useEffect(() => {
+    if (!showTrash) return
+    import('../lib/api').then((m) =>
+      m
+        .apiListTrash()
+        .then(setTrash)
+        .catch(() => setTrash([])),
+    )
+  }, [showTrash])
+
+  function handleRestore(t: import('../types').Trash) {
+    const source = t.table
+    // id vem dentro do payload (mapeado de source_id)
+    const id = String((t.payload as Record<string, unknown>).id ?? '')
+    if (!id) return
+    import('../lib/api').then((m) =>
+      m
+        .apiRestoreFromTrash(source as 'pdis' | 'feedbacks' | 'assessments', id)
+        .then(() => {
+          setTrash((prev) => prev.filter((x) => x !== t))
+          toast.success('Item restaurado com sucesso!')
+          window.location.reload()
+        })
+        .catch(() => toast.error('Falha ao restaurar. Tente novamente.')),
+    )
+  }
 
   async function handleApplyAssessment(e: FormEvent) {
     e.preventDefault()
@@ -538,6 +568,38 @@ export default function DevelopmentAdmin({ user, store }: { user: User; store: H
           </ul>
         )}
       </SectionCard>
+
+      {/* ============ Lixeira (30 dias, restaurável) ============ */}
+      <div>
+        <button type="button" className="btn-secondary px-4 py-2 text-sm" onClick={() => setShowTrash((v) => !v)}>
+          🗑️ Lixeira {showTrash ? '(fechar)' : ''}
+        </button>
+        {showTrash && (
+          <SectionCard title="Itens excluídos — restauráveis por 30 dias">
+            {trash.length === 0 ? (
+              <EmptyState message="Nada na lixeira. Itens excluídos aparecem aqui por 30 dias." />
+            ) : (
+              <ul className="space-y-2">
+                {trash.map((t, i) => {
+                  const p = t.payload as Record<string, unknown>
+                  const label = t.table === 'pdis' ? `PDI: ${p.title ?? '—'}` : t.table === 'feedbacks' ? `Feedback: ${String(p.message ?? '').slice(0, 60)}` : `Avaliação: ${p.title ?? '—'}`
+                  return (
+                    <li key={i} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-100 px-4 py-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-slate-800">{label}</p>
+                        <p className="text-xs text-slate-500">Excluído em {formatDateTime(t.deletedAt)}</p>
+                      </div>
+                      <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={() => handleRestore(t)}>
+                        Restaurar
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </SectionCard>
+        )}
+      </div>
 
       {/* ============ Visualizador: respostas / etapas ============ */}
       {viewing && (viewedAssessment || viewedPdi) && (

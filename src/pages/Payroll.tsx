@@ -25,8 +25,15 @@ export default function Payroll({ user, store }: { user: User; store: HrStore })
   const payrollOn = company?.payrollEnabled !== false
 
   const employees = useMemo(
-    () => data.users.filter((u) => u.companyId === user.companyId && u.role === 'colaborador' && u.active),
-    [data.users, user.companyId],
+    () =>
+      data.users.filter(
+        (u) =>
+          u.companyId === user.companyId &&
+          u.active &&
+          // o GESTOR também lança a PRÓPRIA folha (auto-lançamento)
+          (u.role === 'colaborador' || u.id === user.id),
+      ),
+    [data.users, user.companyId, user.id],
   )
 
   const [selectedId, setSelectedId] = useState<string>(employees[0]?.id ?? '')

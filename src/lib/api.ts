@@ -728,6 +728,13 @@ export async function apiAdminDeleteUser(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+/** Cada usuário atualiza o PRÓPRIO telefone (colaborador não passa pelo admin_update_user). */
+export async function apiUpdateOwnPhone(phone: string): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.rpc('update_own_phone', { p_phone: phone })
+  if (error) throw new Error(error.message)
+}
+
 /** Atualiza flags simples do perfil (bate-ponto) — coluna direta, RLS de gestor aplica. */
 export async function apiUpdateUserFlags(id: string, patch: { requiresPunch?: boolean }): Promise<void> {
   const sb = getSupabase()
@@ -959,6 +966,42 @@ export async function apiDeleteFeedback(id: string): Promise<void> {
   const sb = getSupabase()
   const { error } = await sb.from('feedbacks').delete().eq('id', id)
   if (error) throw new Error(error.message)
+}
+
+// ============================================================
+// Lixeira (soft delete com restauração por 30 dias)
+// ============================================================
+
+export type TrashSource = 'pdis' | 'feedbacks' | 'assessments'
+
+/** Copia o registro para trash e marca deleted_at na origem (transação via 2 chamadas). */
+export async function apiTrashItem(source: TrashSource, id: string, payload: Record<string, unknown>): Promise<void> {
+  const sb = getSupabase()
+  const { error: insErr } = await sb.from('trash').insert({ source_table: source, source_id: id, payload })
+  if (insErr) throw new Error(insErr.message)
+  const { error: updErr } = await sb.from(source).update({ deleted_at: new Date().toISOString() }).eq('id', id)
+  if (updErr) throw new Error(updErr.message)
+}
+
+/** Restaura o item: remove deleted_at na origem e tira da lixeira. */
+export async function apiRestoreFromTrash(source: TrashSource, id: string): Promise<void> {
+  const sb = getSupabase()
+  const { error: updErr } = await sb.from(source).update({ deleted_at: null }).eq('id', id)
+  if (updErr) throw new Error(updErr.message)
+  await sb.from('trash').delete().eq('source_table', source).eq('source_id', id)
+}
+
+/** Lista itens na lixeira (gestor/SA). */
+export async function apiListTrash(): Promise<import('../types').Trash[]> {
+  const sb = getSupabase()
+  const { data, error } = await sb.from('trash').select('*').order('deleted_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((r: any) => ({
+    table: r.source_table,
+    payload: r.payload ?? {},
+    deletedAt: r.deleted_at,
+    deletedBy: r.deleted_by ?? undefined,
+  }))
 }
 
 export async function apiCreateVacancy(v: Omit<Vacancy, 'id' | 'companyId'>): Promise<void> {
@@ -1308,7 +1351,11 @@ export async function apiSavePayroll(run: PayrollRun): Promise<string> {
     unpublished_reason: run.unpublishedReason ?? null,
     generated_at: run.generatedAt,
   }
-  if (run.id && !run.id.startsWith('local_')) {
+  // UPDATE só quando o id JÁ EXISTE no banco. Ids otimistas do cliente
+  // (local_*, pr*, hb*…) nunca existem lá: um UPDATE neles afetaria 0
+  // linhas SEM erro e o holerite simplesmente nunca seria inserido —
+  // exatamente o bug de "publiquei e o colaborador não vê".
+  if (run.id && !run.id.startsWith('local_') && /^[0-9a-f]{8}-/i.test(run.id)) {
     const { error } = await sb.from('payrolls').update(row).eq('id', run.id)
     if (error) throw new Error(error.message)
     return run.id

@@ -81,6 +81,16 @@ export const weekDayLabels: Record<WeekDay, string> = {
   dom: 'Domingo',
 }
 
+export interface Trash {
+  /** Tabela de origem (pdis | feedbacks | assessments) */
+  table: 'pdis' | 'feedbacks' | 'assessments'
+  /** JSON do registro original (para restaurar 1:1) */
+  payload: Record<string, unknown>
+  deletedAt: string
+  /** Quem excluiu */
+  deletedBy?: string
+}
+
 export interface Pdi {
   id: string
   employeeId: string

@@ -6,6 +6,7 @@ import { changePasswordSecure } from '../lib/auth'
 import type { User, WeekDay } from '../types'
 import { weekDayLabels } from '../types'
 import { formatDate, roleLabels } from '../lib/format'
+import { effectiveVacationBalance } from '../lib/vacationBalance'
 import { Avatar, SectionCard, StatusBadge } from '../components/ui'
 
 const weekOrder: WeekDay[] = ['seg', 'ter', 'qua', 'qui', 'sex', 'sab', 'dom']
@@ -22,6 +23,7 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
   const [email, setEmail] = useState(current.email)
   const [jobTitle, setJobTitle] = useState(current.jobTitle)
   const [department, setDepartment] = useState(current.department)
+  const [phone, setPhone] = useState(current.phone ?? '')
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -68,6 +70,7 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
       email: email.trim().toLowerCase().slice(0, 160),
       jobTitle: jobTitle.trim().slice(0, 80),
       department: department.trim().slice(0, 80),
+      phone: phone.trim().slice(0, 20),
     })
     setMsg({ kind: 'ok', text: 'Dados atualizados!' })
     onUserUpdated()
@@ -169,6 +172,10 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
               <input id="pf-job" className="input" maxLength={80} value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} disabled={!perms.profile} />
             </div>
             <div>
+              <label htmlFor="pf-phone" className="mb-1.5 block text-sm font-medium text-slate-700">Telefone</label>
+              <input id="pf-phone" type="tel" className="input" maxLength={20} placeholder="(11) 99999-0000" value={phone} onChange={(e) => setPhone(e.target.value)} disabled={!perms.profile} />
+            </div>
+            <div>
               <label htmlFor="pf-dept" className="mb-1.5 block text-sm font-medium text-slate-700">Departamento</label>
               <input id="pf-dept" className="input" maxLength={80} value={department} onChange={(e) => setDepartment(e.target.value)} disabled={!perms.profile} />
             </div>
@@ -178,8 +185,10 @@ export default function Profile({ user, store, onUserUpdated }: { user: User; st
                 <p className="font-semibold text-slate-800">{formatDate(current.admissionDate)}</p>
               </div>
               <div className="rounded-xl bg-slate-50 p-3">
-                <p className="text-xs text-slate-500">Saldo de férias</p>
-                <p className="font-semibold text-slate-800">{current.vacationBalanceDays} dias</p>
+                <p className="text-xs text-slate-500">Saldo de férias (proporcional)</p>
+                <p className="font-semibold text-slate-800">
+                  {String(effectiveVacationBalance(current.admissionDate, Math.max(0, 30 - current.vacationBalanceDays))).replace('.', ',')} dias
+                </p>
               </div>
             </div>
             {perms.profile ? (
