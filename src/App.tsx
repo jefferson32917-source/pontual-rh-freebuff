@@ -272,7 +272,7 @@ function AppRoutes() {
         path="/login"
         element={loggedUser ? <Navigate to={loggedUser.role === 'super_admin' ? '/empresas' : '/painel'} replace /> : <Login onLogin={refreshUser} />}
       />
-      <Route element={<Layout user={effectiveUser} loggedUser={loggedUser} onLogout={logout} />}>
+      <Route element={<Layout user={effectiveUser} loggedUser={loggedUser} onLogout={logout} store={store} />}>
         {/* Super Admin: administração */}
         <Route path="/admin" element={requireUser(loggedUser?.role === 'super_admin' ? <UserAdmin user={loggedUser} store={store} /> : null)} />
         <Route

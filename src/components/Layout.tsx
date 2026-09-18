@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import type { Role, User } from '../types'
+import type { HrStore } from '../lib/store'
 import { roleLabels } from '../lib/format'
 import { Avatar } from './ui'
 import { useImpersonation } from '../lib/impersonation'
 import { preloadAvatars } from '../lib/avatarCache'
+import { countPdiNews, markAllPdisSeen } from '../lib/pdiNotifications'
 
 interface NavItem {
   to: string
@@ -56,13 +58,32 @@ function navFor(role: Role): NavItem[] {
   ]
 }
 
-export default function Layout({ user, loggedUser, onLogout }: { user: User | null; loggedUser: User | null; onLogout: () => void }) {
+export default function Layout({
+  user,
+  loggedUser,
+  onLogout,
+  store,
+}: {
+  user: User | null
+  loggedUser: User | null
+  onLogout: () => void
+  store?: HrStore
+}) {
   const navigate = useNavigate()
   const impersonation = useImpersonation()
 
   if (!user) return <Outlet />
 
   const items = navFor(user.role)
+
+  /** Badge: PDIs do colaborador com comentário/metas novos do gestor. */
+  const pdiNews =
+    user.role === 'colaborador' && store
+      ? countPdiNews(store.data.pdis, user.id)
+      : 0
+  const markDevSeen = () => {
+    if (store && user.role === 'colaborador') markAllPdisSeen(store.data.pdis, user.id)
+  }
 
   // Preload das fotos (idle): evita o flash "iniciais -> foto" ao abrir listas.
   // Prioriza o próprio usuário; as demais URLs vêm do cache (já hidratado
@@ -114,8 +135,9 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
               <NavLink
                 key={item.to}
                 to={item.to}
+                onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                  `relative flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-primary-50 text-primary-700'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -126,6 +148,11 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
                   <path d={item.icon} />
                 </svg>
                 {item.label}
+                {item.to === '/meu-desenvolvimento' && pdiNews > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+                    {pdiNews}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
@@ -170,8 +197,9 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
             <NavLink
               key={item.to}
               to={item.to}
+              onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
               className={({ isActive }) =>
-                `flex min-w-[64px] flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
+                `relative flex min-w-[64px] flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-primary-600' : 'text-slate-500'
                 }`
               }
@@ -180,6 +208,11 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
                 <path d={item.icon} />
               </svg>
               {item.label}
+              {item.to === '/meu-desenvolvimento' && pdiNews > 0 && (
+                <span className="absolute right-2 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
+                  {pdiNews}
+                </span>
+              )}
             </NavLink>
           ))}
         </div>

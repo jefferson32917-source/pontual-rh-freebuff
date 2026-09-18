@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { HrStore } from '../lib/store'
@@ -5,6 +6,7 @@ import type { Feedback, FeedbackKind, User } from '../types'
 import { formatDate, formatDateTime, pdiStatusLabels } from '../lib/format'
 import { Avatar, EmptyState, ProgressBar, SectionCard, StatusBadge } from '../components/ui'
 import { toast } from '../components/Toast'
+import { markAllPdisSeen } from '../lib/pdiNotifications'
 
 export default function Development({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
@@ -19,6 +21,11 @@ export default function Development({ user, store }: { user: User; store: HrStor
   const [sent, setSent] = useState(false)
 
   const myPdis = data.pdis.filter((p) => p.employeeId === user.id)
+  // Abrir a aba marca as novidades do PDI (comentários/metas) como vistas.
+  useEffect(() => {
+    markAllPdisSeen(data.pdis, user.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.pdis, user.id])
   const received = data.feedbacks.filter((f) => f.toId === user.id)
   const given = data.feedbacks.filter((f) => f.fromId === user.id)
   /** Questionários/avaliações aplicados a mim pelo gestor. */

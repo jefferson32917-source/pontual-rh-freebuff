@@ -9,6 +9,7 @@ import { downloadPayrollPdf } from '../../lib/pdf'
 import { printPayroll } from '../../lib/print'
 import TaskList from '../../components/TaskList'
 import QuickPunch from '../../components/QuickPunch'
+import { countPdiNews } from '../../lib/pdiNotifications'
 
 export default function ColaboradorDashboard({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
@@ -36,6 +37,8 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
   /** Feedbacks estruturados/avaliações aplicados a mim (respondidos na aba Desenvolvimento). */
   const myAssessments = useMemo(() => data.assessments.filter((a) => a.assignedTo === user.id), [data.assessments, user.id])
   const pendingAssessments = myAssessments.filter((a) => !a.completedAt)
+  /** PDIs com comentário/metas novos do gestor — badge de novidades. */
+  const pdiNews = countPdiNews(data.pdis, user.id)
   const pendingRequests = data.requests.filter(
     (r) => r.employeeId === user.id && r.status === 'pendente',
   ).length
@@ -117,6 +120,19 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
 
       {/* Bater ponto direto do painel — sem abrir a aba Ponto */}
       <QuickPunch user={user} store={store} />
+
+      {/* Atalho: feedbacks estruturados / avaliações a responder */}
+      {pdiNews > 0 && (
+        <Link to="/meu-desenvolvimento" className="flex items-center justify-between gap-3 rounded-2xl border border-primary-100 bg-primary-50 px-4 py-3 transition-colors hover:bg-primary-100">
+          <p className="text-sm font-semibold text-primary-900">
+            <span aria-hidden="true">🔔 </span>
+            Novidades no seu PDI — o gestor enviou mensagem ou metas
+          </p>
+          <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-rose-500 px-2 text-xs font-bold text-white">
+            {pdiNews}
+          </span>
+        </Link>
+      )}
 
       {/* Atalho: feedbacks estruturados / avaliações a responder */}
       {myAssessments.length > 0 && (
