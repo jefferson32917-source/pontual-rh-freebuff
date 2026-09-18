@@ -171,3 +171,20 @@
 
 /* A impressão do holerite acontece em janela dedicada (lib/print.ts):
    nenhum CSS de impressão da SPA é necessário aqui. */
+
+/* ============================================================
+   Toasts de sucesso/erro (canto inferior direito, some em 3s)
+   ============================================================ */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.toast-enter {
+  animation: toast-in 0.18s ease-out;
+}

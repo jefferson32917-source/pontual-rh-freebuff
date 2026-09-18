@@ -30,6 +30,8 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
     () => data.feedbacks.filter((f) => f.toId === user.id),
     [data, user.id],
   )
+  /** Feedbacks aguardando confirmação de leitura (botão obrigatório). */
+  const unreadFeedbacks = myFeedbacks.filter((f) => !f.readAt)
   const pendingRequests = data.requests.filter(
     (r) => r.employeeId === user.id && r.status === 'pendente',
   ).length
@@ -142,23 +144,41 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
                       <span>{pdi.progress}%</span>
                     </div>
                     <ProgressBar value={pdi.progress} />
-                    {pdi.status !== 'concluido' && (
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          type="button"
-                          className="btn-secondary flex-1 py-2 text-xs"
-                          onClick={() => store.updatePdiProgress(pdi.id, pdi.progress + 10)}
-                        >
-                          +10%
-                        </button>
-                        <button
-                          type="button"
-                          className="btn-primary flex-1 py-2 text-xs"
-                          onClick={() => store.updatePdiProgress(pdi.id, 100)}
-                        >
-                          Concluir
-                        </button>
-                      </div>
+                    {pdi.steps && pdi.steps.length > 0 ? (
+                      <ul className="mt-3 space-y-1.5">
+                        {pdi.steps.map((s) => (
+                          <li key={s.id}>
+                            <label className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-2.5 text-sm ${s.done ? 'border-teal-200 bg-teal-50/50' : 'border-slate-100 hover:bg-slate-50'}`}>
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 accent-teal-600"
+                                checked={s.done}
+                                onChange={() => store.togglePdiStep(pdi.id, s.id)}
+                              />
+                              <span className={s.done ? 'font-medium text-teal-800' : 'text-slate-700'}>{s.label}</span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      pdi.status !== 'concluido' && (
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            type="button"
+                            className="btn-secondary flex-1 py-2 text-xs"
+                            onClick={() => store.updatePdiProgress(pdi.id, pdi.progress + 10)}
+                          >
+                            +10%
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-primary flex-1 py-2 text-xs"
+                            onClick={() => store.updatePdiProgress(pdi.id, 100)}
+                          >
+                            Concluir
+                          </button>
+                        </div>
+                      )
                     )}
                   </div>
                 </div>
@@ -167,7 +187,12 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
           )}
         </SectionCard>
 
-        <SectionCard title="Feedbacks recebidos" action={<StatusBadge tone="primary">{myFeedbacks.length}</StatusBadge>}>
+        <SectionCard
+          title="Feedbacks recebidos"
+          action={
+            unreadFeedbacks.length > 0 ? <StatusBadge tone="amber">{unreadFeedbacks.length} p/ confirmar</StatusBadge> : <StatusBadge tone="primary">{myFeedbacks.length}</StatusBadge>
+          }
+        >
           {myFeedbacks.length === 0 ? (
             <EmptyState message="Nenhum feedback recebido ainda." />
           ) : (
@@ -176,7 +201,7 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
                 const from = data.users.find((u) => u.id === feedback.fromId)
                 const senderName = feedback.anonymous ? 'Anônimo' : (from?.name ?? 'Colega')
                 return (
-                  <li key={feedback.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-4">
+                  <li key={feedback.id} className={`flex items-start gap-3 rounded-xl border p-4 ${feedback.readAt ? 'border-slate-100' : 'border-amber-300 bg-amber-50/40'}`}>
                     {feedback.anonymous ? (
                       <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-500">
                         ?
@@ -193,6 +218,19 @@ export default function ColaboradorDashboard({ user, store }: { user: User; stor
                         <span className="text-xs text-slate-400">{formatDateTime(feedback.createdAt)}</span>
                       </div>
                       <p className="mt-1 text-sm leading-relaxed text-slate-600">{feedback.message}</p>
+                      {feedback.readAt ? (
+                        <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">
+                          ✓ Leitura confirmada em {formatDateTime(feedback.readAt)}
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-primary mt-2.5 px-3.5 py-2 text-xs"
+                          onClick={() => store.markFeedbackRead(feedback.id)}
+                        >
+                          Confirmar que li este feedback
+                        </button>
+                      )}
                     </div>
                   </li>
                 )

@@ -130,6 +130,28 @@ function toPdi(r: any): Pdi {
     status: r.status,
     dueDate: r.due_date,
     progress: r.progress,
+    createdBy: r.created_by ?? undefined,
+    steps: Array.isArray(r.steps) ? r.steps : [],
+  }
+}
+
+function toAssessment(r: any): import('../types').Assessment {
+  return {
+    id: r.id,
+    kind: r.kind,
+    title: r.title,
+    description: r.description ?? undefined,
+    createdBy: r.created_by,
+    assignedTo: r.assigned_to,
+    questions: Array.isArray(r.questions)
+      ? r.questions.map((q: any, i: number) => ({
+          id: q.id ?? `q${i}`,
+          text: q.text ?? '',
+          answer: q.answer ?? undefined,
+        }))
+      : [],
+    createdAt: r.created_at,
+    completedAt: r.completed_at ?? undefined,
   }
 }
 
@@ -142,6 +164,7 @@ function toFeedback(r: any): Feedback {
     message: r.message,
     createdAt: r.created_at,
     anonymous: r.anonymous,
+    readAt: r.read_at ?? undefined,
   }
 }
 
@@ -258,6 +281,7 @@ export interface HrData {
   payrolls: PayrollRun[]
   hourBank: HourBankAdjustment[]
   entryAdjustments: import('../types').TimeEntryAdjustment[]
+  assessments: import('../types').Assessment[]
 }
 
 /** Cache do core em sessionStorage: refresh da página abre instantâneo. */
@@ -390,6 +414,7 @@ function mapHeavyRows(r: Record<string, unknown>): Omit<HrData, 'companies' | 'u
 
   return {
     pdis: rows('pdis').map(toPdi),
+    assessments: rows('assessments').map(toAssessment),
     feedbacks: rows('feedbacks').map(toFeedback),
     vacancies: rows('vacancies').map(toVacancy),
     requests: rows('requests').map((row) => toRequest(row, attachMap.get(row.id) ?? [])),
@@ -431,7 +456,7 @@ function mapHeavyRows(r: Record<string, unknown>): Omit<HrData, 'companies' | 'u
 /** Fallback: as 12 queries em paralelo (usado até a RPC ser aplicada). */
 async function loadHeavyDataParallel(): Promise<Omit<HrData, 'companies' | 'users'>> {
   const sb = getSupabase()
-  const [pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank, vacationHistory, dayOffs] =
+  const [pdis, feedbacks, vacancies, requests, attachments, vacations, timeEntries, tasks, payrolls, hourBank, vacationHistory, dayOffs, assessments] =
     await Promise.all([
       sb.from('pdis').select('*'),
       sb.from('feedbacks').select('*').order('created_at', { ascending: false }),
@@ -449,6 +474,11 @@ async function loadHeavyDataParallel(): Promise<Omit<HrData, 'companies' | 'user
         () => ({ data: [], error: null }),
       ),
       sb.from('day_off_requests').select('*').order('day', { ascending: false }).then(
+        (r) => (r.error ? { data: [], error: null } : r),
+        () => ({ data: [], error: null }),
+      ),
+      // tabela nova (migration v7): tolera ausência até a migração ser aplicada
+      sb.from('assessments').select('*').order('created_at', { ascending: false }).then(
         (r) => (r.error ? { data: [], error: null } : r),
         () => ({ data: [], error: null }),
       ),
@@ -486,6 +516,7 @@ async function loadHeavyDataParallel(): Promise<Omit<HrData, 'companies' | 'user
 
   return {
     pdis: (pdis.data ?? []).map(toPdi),
+    assessments: ((assessments.data ?? []) as any[]).map(toAssessment),
     feedbacks: (feedbacks.data ?? []).map(toFeedback),
     vacancies: (vacancies.data ?? []).map(toVacancy),
     requests: (requests.data ?? []).map((r) => toRequest(r, attachMap.get(r.id) ?? [])),
@@ -789,6 +820,103 @@ export async function apiAddFeedback(fb: Omit<Feedback, 'id'>): Promise<void> {
     message: fb.message,
     anonymous: fb.anonymous,
   })
+  if (error) throw new Error(error.message)
+}
+
+/** Confirmação de leitura do feedback — somente o destinatário (RLS). */
+export async function apiMarkFeedbackRead(feedbackId: string): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb
+    .from('feedbacks')
+    .update({ read_at: new Date().toISOString() })
+    .eq('id', feedbackId)
+  if (error) throw new Error(error.message)
+}
+
+// ============================================================
+// Escrita: assessments (questionários e avaliações)
+// ============================================================
+
+export async function apiCreateAssessment(
+  a: Omit<import('../types').Assessment, 'id' | 'createdAt' | 'completedAt'>,
+): Promise<string> {
+  const sb = getSupabase()
+  const { data, error } = await sb
+    .from('assessments')
+    .insert({
+      kind: a.kind,
+      title: a.title,
+      description: a.description ?? null,
+      created_by: a.createdBy,
+      assigned_to: a.assignedTo,
+      questions: a.questions,
+    })
+    .select('id')
+    .single()
+  if (error) throw new Error(error.message)
+  return data.id as string
+}
+
+/** Salva as respostas do colaborador (tempo real, pergunta a pergunta). */
+export async function apiSaveAssessmentAnswers(id: string, questions: import('../types').AssessmentQuestion[], completed: boolean): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb
+    .from('assessments')
+    .update({
+      questions,
+      ...(completed ? { completed_at: new Date().toISOString() } : {}),
+    })
+    .eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function apiDeleteAssessment(id: string): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('assessments').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/** Cria PDI com etapas (gestor) — insert direto, RLS de can_manage aplica. */
+export async function apiCreatePdi(p: {
+  employeeId: string
+  title: string
+  description: string
+  dueDate: string
+  createdBy: string
+  steps: import('../types').PdiStep[]
+}): Promise<string> {
+  const sb = getSupabase()
+  const { data, error } = await sb
+    .from('pdis')
+    .insert({
+      employee_id: p.employeeId,
+      title: p.title,
+      description: p.description,
+      status: 'em_andamento',
+      due_date: p.dueDate,
+      progress: 0,
+      created_by: p.createdBy,
+      steps: p.steps,
+    })
+    .select('id')
+    .single()
+  if (error) throw new Error(error.message)
+  return data.id as string
+}
+
+/** Salva as etapas do PDI (colaborador marca/desmarca) e recalcula o progresso. */
+export async function apiSavePdiSteps(pdiId: string, steps: import('../types').PdiStep[]): Promise<void> {
+  const sb = getSupabase()
+  const done = steps.filter((s) => s.done).length
+  const progress = steps.length > 0 ? Math.round((done / steps.length) * 100) : 0
+  const status = progress >= 100 ? 'concluido' : 'em_andamento'
+  const { error } = await sb.from('pdis').update({ steps, progress, status }).eq('id', pdiId)
+  if (error) throw new Error(error.message)
+}
+
+export async function apiDeletePdi(pdiId: string): Promise<void> {
+  const sb = getSupabase()
+  const { error } = await sb.from('pdis').delete().eq('id', pdiId)
   if (error) throw new Error(error.message)
 }
 

@@ -89,9 +89,46 @@ export interface Pdi {
   status: PdiStatus
   dueDate: string
   progress: number // 0-100
+  /** Quem criou o PDI (gestor) */
+  createdBy?: string
+  /** Etapas do plano — o colaborador marca cada uma como concluída */
+  steps?: PdiStep[]
+}
+
+export interface PdiStep {
+  id: string
+  label: string
+  done: boolean
+  /** ISO datetime da conclusão (rastreabilidade) */
+  doneAt?: string
 }
 
 export type PdiStatus = 'em_andamento' | 'concluido' | 'atrasado'
+
+/** Questionário ou avaliação aplicada pelo gestor a um colaborador. */
+export type AssessmentKind = 'questionario' | 'avaliacao'
+
+export interface AssessmentQuestion {
+  id: string
+  text: string
+  /** Resposta do colaborador (salva em tempo real, pergunta a pergunta) */
+  answer?: string
+}
+
+export interface Assessment {
+  id: string
+  kind: AssessmentKind
+  title: string
+  description?: string
+  /** gestor que criou */
+  createdBy: string
+  /** colaborador que responde */
+  assignedTo: string
+  questions: AssessmentQuestion[]
+  createdAt: string
+  /** preenchido quando o colaborador finaliza */
+  completedAt?: string
+}
 
 export type FeedbackKind = 'positivo' | 'melhoria'
 
@@ -103,6 +140,8 @@ export interface Feedback {
   message: string
   createdAt: string
   anonymous: boolean
+  /** Confirmação de leitura: ISO datetime de quando o destinatário confirmou */
+  readAt?: string
 }
 
 export type VacancyStatus = 'aberta' | 'em_processo' | 'fechada'

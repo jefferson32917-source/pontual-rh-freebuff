@@ -16,12 +16,13 @@ import type {
   VacationRequest,
   Vacancy,
 } from '../types'
-import type { TimeEntryAdjustment } from '../types'
+import type { Assessment, AssessmentQuestion, PdiStep, TimeEntryAdjustment } from '../types'
 import * as api from './api'
 import { nextMatricula, pickAvatarColor } from './matricula'
 import { localDayKey, localTodayKey } from './format'
 import { markStart, markEnd } from './perf'
 import { syncAvatarCache, logAvatarChainDiagnostics } from './avatarCache'
+import { toast } from '../components/Toast'
 
 /**
  * Camada de dados do app — agora com persistência real no Supabase.
@@ -69,6 +70,7 @@ export interface HrData {
   payrolls: PayrollRun[]
   hourBank: HourBankAdjustment[]
   entryAdjustments: TimeEntryAdjustment[]
+  assessments: Assessment[]
 }
 
 export type CreateResult = { ok: true; user: User } | { ok: false; error: string }
@@ -88,6 +90,7 @@ const emptyData: HrData = {
   payrolls: [],
   hourBank: [],
   entryAdjustments: [],
+  assessments: [],
 }
 
 export function useHrData() {
@@ -341,6 +344,7 @@ export function useHrData() {
         transportAllowance: patch.transportAllowance,
         active: patch.active,
       })
+      .then(() => toast.success('Sucesso! Alteração confirmada com êxito.'))
       .catch(() => void reload())
   }, [reload])
 
@@ -363,7 +367,10 @@ export function useHrData() {
 
   // ============ Autenticação / perfil ============
   const changePassword = useCallback((userId: string, newPassword: string) => {
-    void api.apiAdminUpdateUser(userId, { password: newPassword }).catch(() => void reload())
+    void api
+      .apiAdminUpdateUser(userId, { password: newPassword })
+      .then(() => toast.success('Sucesso! Senha alterada com êxito.'))
+      .catch(() => void reload())
   }, [reload])
 
   /**
@@ -392,7 +399,7 @@ export function useHrData() {
           ...d,
           users: d.users.map((u) => (u.id === userId ? { ...u, photoDataUrl: url } : u)),
         }))
-        return api.apiUpdatePhoto(userId, url)
+        return api.apiUpdatePhoto(userId, url).then(() => toast.success('Sucesso! Foto atualizada com êxito.'))
       })
       .catch(async (storageErr) => {
         // FALLBACK: Storage indisponível -> salva inline no banco (dataURL pequeno)
@@ -420,7 +427,129 @@ export function useHrData() {
   // ============ Feedback / requisições / férias / ponto ============
   const addFeedback = useCallback((feedback: Feedback) => {
     setData((d) => ({ ...d, feedbacks: [feedback, ...d.feedbacks] }))
-    void api.apiAddFeedback(feedback).catch(() => void reload())
+    void api
+      .apiAddFeedback(feedback)
+      .then(() => toast.success('Sucesso! Feedback enviado com êxito.'))
+      .catch(() => void reload())
+  }, [reload])
+
+  /** Confirmação de leitura — só o destinatário dispara (botão do painel). */
+  const markFeedbackRead = useCallback(
+    (feedbackId: string) => {
+      const readAt = new Date().toISOString()
+      setData((d) => ({
+        ...d,
+        feedbacks: d.feedbacks.map((f) => (f.id === feedbackId ? { ...f, readAt } : f)),
+      }))
+      void api.apiMarkFeedbackRead(feedbackId).catch(() => void reload())
+    },
+    [reload],
+  )
+
+  // ============ Assessments (questionários e avaliações) ============
+  const createAssessment = useCallback(
+    (a: Omit<Assessment, 'id' | 'createdAt' | 'completedAt'>): Promise<void> => {
+      const optimistic: Assessment = { ...a, id: `local_as${Date.now()}`, createdAt: new Date().toISOString() }
+      setData((d) => ({ ...d, assessments: [optimistic, ...d.assessments] }))
+      return api
+        .apiCreateAssessment(a)
+        .then((realId) => {
+          setData((d) => ({
+            ...d,
+            assessments: d.assessments.map((x) => (x.id === optimistic.id ? { ...x, id: realId } : x)),
+          }))
+        })
+        .catch((e) => {
+          setData((d) => ({ ...d, assessments: d.assessments.filter((x) => x.id !== optimistic.id) }))
+          throw e
+        })
+    },
+    [],
+  )
+
+  /** Respostas do colaborador — salvas em tempo real, pergunta a pergunta. */
+  const saveAssessmentAnswers = useCallback((id: string, questions: AssessmentQuestion[], completed: boolean) => {
+    setData((d) => ({
+      ...d,
+      assessments: d.assessments.map((x) =>
+        x.id === id ? { ...x, questions, completedAt: completed ? new Date().toISOString() : x.completedAt } : x,
+      ),
+    }))
+    if (id.startsWith('local_')) return
+    void api.apiSaveAssessmentAnswers(id, questions, completed).catch(() => void reload())
+  }, [reload])
+
+  const deleteAssessment = useCallback((id: string) => {
+    setData((d) => ({ ...d, assessments: d.assessments.filter((x) => x.id !== id) }))
+    if (id.startsWith('local_')) return
+    void api.apiDeleteAssessment(id).catch(() => void reload())
+  }, [reload])
+
+  /** PDI criado pelo gestor com etapas. */
+  const createPdi = useCallback(
+    (p: { employeeId: string; title: string; description: string; dueDate: string; createdBy: string; steps: PdiStep[] }): Promise<void> => {
+      const optimistic: Pdi = {
+        id: `local_pdi${Date.now()}`,
+        employeeId: p.employeeId,
+        title: p.title,
+        description: p.description,
+        status: 'em_andamento',
+        dueDate: p.dueDate,
+        progress: 0,
+        createdBy: p.createdBy,
+        steps: p.steps,
+      }
+      setData((d) => ({ ...d, pdis: [optimistic, ...d.pdis] }))
+      return api
+        .apiCreatePdi(p)
+        .then((realId) => {
+          setData((d) => ({ ...d, pdis: d.pdis.map((x) => (x.id === optimistic.id ? { ...x, id: realId } : x)) }))
+        })
+        .catch((e) => {
+          setData((d) => ({ ...d, pdis: d.pdis.filter((x) => x.id !== optimistic.id) }))
+          throw e
+        })
+    },
+    [],
+  )
+
+  /** Colaborador marca/desmarca etapa do PDI; progresso recalculado. */
+  const togglePdiStep = useCallback(
+    (pdiId: string, stepId: string) => {
+      setData((d) => {
+        const next = d.pdis.map((p) => {
+          if (p.id !== pdiId || !p.steps) return p
+          const now = new Date().toISOString()
+          const steps = p.steps.map((s) =>
+            s.id === stepId ? { ...s, done: !s.done, doneAt: !s.done ? now : undefined } : s,
+          )
+          const doneCount = steps.filter((s) => s.done).length
+          const progress = steps.length > 0 ? Math.round((doneCount / steps.length) * 100) : 0
+          return {
+            ...p,
+            steps,
+            progress,
+            status: (progress >= 100 ? 'concluido' : 'em_andamento') as Pdi['status'],
+          }
+        })
+        return { ...d, pdis: next }
+      })
+      if (pdiId.startsWith('local_')) return
+      const current = data.pdis.find((p) => p.id === pdiId)
+      if (current?.steps) {
+        const steps = current.steps.map((s) =>
+          s.id === stepId ? { ...s, done: !s.done, doneAt: !s.done ? new Date().toISOString() : undefined } : s,
+        )
+        void api.apiSavePdiSteps(pdiId, steps).catch(() => void reload())
+      }
+    },
+    [data.pdis, reload],
+  )
+
+  const deletePdi = useCallback((pdiId: string) => {
+    setData((d) => ({ ...d, pdis: d.pdis.filter((p) => p.id !== pdiId) }))
+    if (pdiId.startsWith('local_')) return
+    void api.apiDeletePdi(pdiId).catch(() => void reload())
   }, [reload])
 
   const updateRequestStatus = useCallback((id: string, status: Request['status'], reviewNote?: string) => {
@@ -428,6 +557,7 @@ export function useHrData() {
       ...d,
       requests: d.requests.map((r) => (r.id === id ? { ...r, status, reviewNote: reviewNote ?? r.reviewNote } : r)),
     }))
+    toast.success(status === 'aprovado' ? 'Sucesso! Requisição aprovada.' : 'Requisição reprovada.')
     void api.apiUpdateRequestStatus(id, status, reviewNote).catch(() => void reload())
   }, [reload])
 
@@ -768,6 +898,13 @@ export function useHrData() {
       changePassword,
       updatePhoto,
       addFeedback,
+      markFeedbackRead,
+      createAssessment,
+      saveAssessmentAnswers,
+      deleteAssessment,
+      createPdi,
+      togglePdiStep,
+      deletePdi,
       updateRequestStatus,
       createRequest,
       addVacation,

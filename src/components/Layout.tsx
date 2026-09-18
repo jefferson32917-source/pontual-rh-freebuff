@@ -20,6 +20,7 @@ const iconPaths = {
   ferias: 'M8 2v4m8-4v4M3 10h18M5 6h14v15H5zM9 15l2 2 4-4',
   ponto: 'M12 8v4l3 3M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   requisicoes: 'M5 5h14v15H5zM8 9h8M8 13h8M8 17h5',
+  desenvolvimentoTime: 'M4 19V9m6 10V5m6 14v-7m3-7 2-3 3 4',
   folha: 'M3 6h18v12H3zM3 10h18M7 15h4',
   desenvolvimento: 'M4 19V9m6 10V5m6 14v-7',
   perfil: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-8 9a8 8 0 0 1 16 0',
@@ -41,6 +42,7 @@ function navFor(role: Role): NavItem[] {
       { to: '/ponto', label: 'Ponto', icon: iconPaths.ponto },
       { to: '/folha', label: 'Folha', icon: iconPaths.folha },
       { to: '/requisicoes', label: 'Requisições', icon: iconPaths.requisicoes },
+      { to: '/desenvolvimento-time', label: 'Desenvolvimento', icon: iconPaths.desenvolvimentoTime },
       { to: '/perfil', label: 'Perfil', icon: iconPaths.perfil },
     ]
   }
@@ -162,13 +164,13 @@ export default function Layout({ user, loggedUser, onLogout }: { user: User | nu
         className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
         aria-label="Navegação principal"
       >
-        <div className="mx-auto flex max-w-xl items-stretch justify-around">
-          {items.slice(0, 5).map((item) => (
+        <div className="mx-auto flex max-w-xl items-stretch justify-start overflow-x-auto">
+          {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `flex flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
+                `flex min-w-[64px] flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-primary-600' : 'text-slate-500'
                 }`
               }

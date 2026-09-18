@@ -8,6 +8,7 @@ import { markStart, markEnd } from './lib/perf'
 import { getSupabase } from './lib/supabase'
 import { useHrData } from './lib/store'
 import { ImpersonationProvider, useImpersonation } from './lib/impersonation'
+import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 
@@ -25,12 +26,13 @@ const Vacations = lazy(() => import('./pages/Vacations'))
 const Timesheet = lazy(() => import('./pages/Timesheet'))
 const Requests = lazy(() => import('./pages/Requests'))
 const Development = lazy(() => import('./pages/Development'))
+const DevelopmentAdmin = lazy(() => import('./pages/DevelopmentAdmin'))
 const Team = lazy(() => import('./pages/Team'))
 
 /** Rotas por papel — Super Admin não tem painel próprio: só administração. */
 const roleRoutes: Record<Role, string[]> = {
   super_admin: ['/empresas', '/admin', '/usuarios', '/perfil'],
-  gestor: ['/painel', '/usuarios', '/ferias', '/ponto', '/folha', '/requisicoes', '/perfil'],
+  gestor: ['/painel', '/usuarios', '/ferias', '/ponto', '/folha', '/requisicoes', '/desenvolvimento-time', '/perfil'],
   colaborador: ['/painel', '/ponto', '/ferias', '/requisicoes', '/meus-holerites', '/meu-desenvolvimento', '/perfil'],
 }
 
@@ -186,6 +188,7 @@ function AppRoutes() {
       void import('./pages/Timesheet')
       void import('./pages/Requests')
       void import('./pages/Development')
+      void import('./pages/DevelopmentAdmin')
       void import('./pages/Team')
     }
     const w = window as Window & {
@@ -293,6 +296,10 @@ function AppRoutes() {
           element={requireUser(effectiveUser ? <Development user={effectiveUser} store={store} /> : null)}
         />
         <Route
+          path="/desenvolvimento-time"
+          element={requireUser(effectiveUser && effectiveUser.role === 'gestor' ? <DevelopmentAdmin user={effectiveUser} store={store} /> : null)}
+        />
+        <Route
           path="/equipes"
           element={requireUser(effectiveUser && (effectiveUser.role === 'gestor' || effectiveUser.role === 'super_admin') ? <Team user={effectiveUser} store={store} /> : null)}
         />
@@ -305,8 +312,10 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <ImpersonationProvider>
-      <AppRoutes />
-    </ImpersonationProvider>
+    <ToastProvider>
+      <ImpersonationProvider>
+        <AppRoutes />
+      </ImpersonationProvider>
+    </ToastProvider>
   )
 }

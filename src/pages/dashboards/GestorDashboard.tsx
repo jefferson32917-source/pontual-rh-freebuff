@@ -35,6 +35,8 @@ export default function GestorDashboard({ user, store }: { user: User; store: Hr
 
   const teamRequests = data.requests.filter((r) => teamIds.includes(r.employeeId))
   const pendingRequests = teamRequests.filter((r) => r.status === 'pendente')
+  /** Feedbacks enviados por mim — com status de confirmação de leitura. */
+  const givenFeedbacks = data.feedbacks.filter((f) => f.fromId === user.id)
 
   return (
     <div className="space-y-6">
@@ -193,6 +195,42 @@ export default function GestorDashboard({ user, store }: { user: User; store: Hr
                   )}
                 </li>
               ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Feedbacks que enviei"
+          action={<StatusBadge tone="primary">{givenFeedbacks.length}</StatusBadge>}
+        >
+          {givenFeedbacks.length === 0 ? (
+            <EmptyState message="Envie feedbacks pela aba Desenvolvimento (seu painel de desenvolvimento)." />
+          ) : (
+            <ul className="space-y-3">
+              {givenFeedbacks.slice(0, 6).map((f) => {
+                const to = data.users.find((u) => u.id === f.toId)
+                return (
+                  <li key={f.id} className="rounded-xl border border-slate-100 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-sm font-semibold text-slate-900">{to?.name ?? '—'}</p>
+                      <StatusBadge tone={f.kind === 'positivo' ? 'teal' : 'amber'}>
+                        {f.kind === 'positivo' ? 'Positivo' : 'Melhoria'}
+                      </StatusBadge>
+                      <span className="text-xs text-slate-400">{formatDateTime(f.createdAt)}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-600">{f.message}</p>
+                    {f.readAt ? (
+                      <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">
+                        ✓ Lido por {to?.name?.split(' ')[0] ?? 'colaborador'} em {formatDateTime(f.readAt)}
+                      </p>
+                    ) : (
+                      <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+                        ⏳ Aguardando confirmação de leitura
+                      </p>
+                    )}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </SectionCard>

@@ -4,6 +4,7 @@ import type { HrStore } from '../lib/store'
 import type { Feedback, FeedbackKind, User } from '../types'
 import { formatDate, formatDateTime, pdiStatusLabels } from '../lib/format'
 import { Avatar, EmptyState, ProgressBar, SectionCard, StatusBadge } from '../components/ui'
+import { toast } from '../components/Toast'
 
 export default function Development({ user, store }: { user: User; store: HrStore }) {
   const { data } = store
@@ -17,6 +18,8 @@ export default function Development({ user, store }: { user: User; store: HrStor
   const myPdis = data.pdis.filter((p) => p.employeeId === user.id)
   const received = data.feedbacks.filter((f) => f.toId === user.id)
   const given = data.feedbacks.filter((f) => f.fromId === user.id)
+  /** Questionários/avaliações aplicados a mim pelo gestor. */
+  const myAssessments = data.assessments.filter((a) => a.assignedTo === user.id)
 
   const colleagues = data.users.filter((u) => u.id !== user.id && u.companyId === user.companyId)
 
@@ -50,6 +53,73 @@ export default function Development({ user, store }: { user: User; store: HrStor
         <p className="mt-1 text-sm text-slate-500">PDIs, feedbacks e evolução de carreira.</p>
       </header>
 
+      {/* ============ Questionários e avaliações que preciso responder ============ */}
+      {myAssessments.length > 0 && (
+        <SectionCard
+          title="Questionários e avaliações"
+          action={
+            <StatusBadge tone={myAssessments.some((a) => !a.completedAt) ? 'amber' : 'teal'}>
+              {myAssessments.filter((a) => !a.completedAt).length} pendentes
+            </StatusBadge>
+          }
+        >
+          <ul className="space-y-4">
+            {myAssessments.map((a) => {
+              const answered = a.questions.filter((q) => (q.answer ?? '').trim().length > 0).length
+              const total = a.questions.length
+              const progressPct = total > 0 ? Math.round((answered / total) * 100) : 0
+              return (
+                <li key={a.id} className={`rounded-xl border p-4 ${a.completedAt ? 'border-teal-200 bg-teal-50/40' : 'border-amber-200 bg-amber-50/30'}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{a.title}</p>
+                      {a.description && <p className="mt-0.5 text-xs text-slate-500">{a.description}</p>}
+                    </div>
+                    <StatusBadge tone={a.completedAt ? 'teal' : 'amber'}>{a.completedAt ? 'Concluído' : 'Pendente'}</StatusBadge>
+                  </div>
+                  <div className="mt-2 max-w-sm">
+                    <ProgressBar value={progressPct} />
+                    <p className="mt-1 text-xs font-semibold text-slate-500">Respondido {answered} de {total} perguntas</p>
+                  </div>
+                  {!a.completedAt && (
+                    <div className="mt-3 space-y-3">
+                      {a.questions.map((q, i) => (
+                        <div key={q.id}>
+                          <label htmlFor={`${a.id}-${q.id}`} className="mb-1 block text-sm font-medium text-slate-700">
+                            {i + 1}. {q.text}
+                          </label>
+                          <textarea
+                            id={`${a.id}-${q.id}`}
+                            className="input min-h-[56px] resize-y"
+                            placeholder="Sua resposta…"
+                            defaultValue={q.answer ?? ''}
+                            onBlur={(e) => {
+                              const next = a.questions.map((x) => (x.id === q.id ? { ...x, answer: e.target.value.trim().slice(0, 1000) } : x))
+                              store.saveAssessmentAnswers(a.id, next, false) // tempo real: salva ao sair do campo
+                            }}
+                          />
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        disabled={answered < total}
+                        onClick={() => {
+                          store.saveAssessmentAnswers(a.id, a.questions, true)
+                          toast.success('Sucesso! Respostas enviadas com êxito.')
+                        }}
+                      >
+                        {answered < total ? `Responda todas as perguntas (${answered}/${total})` : 'Enviar respostas'}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        </SectionCard>
+      )}
+
       <div className="grid gap-6 lg:grid-cols-2">
         <SectionCard title="Planos de desenvolvimento individual">
           {myPdis.length === 0 ? (
@@ -71,8 +141,29 @@ export default function Development({ user, store }: { user: User; store: HrStor
                     <ProgressBar value={pdi.progress} />
                     <div className="mt-2 flex items-center justify-between">
                       <span className="text-xs font-semibold text-slate-500">{pdi.progress}%</span>
-                      {pdi.status !== 'concluido' && (
-                        <div className="flex gap-2">
+                    </div>
+                    {pdi.steps && pdi.steps.length > 0 ? (
+                      <ul className="mt-2 space-y-1.5">
+                        {pdi.steps.map((s) => (
+                          <li key={s.id}>
+                            <label className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-2.5 text-sm ${s.done ? 'border-teal-200 bg-teal-50/50' : 'border-slate-100 hover:bg-slate-50'}`}>
+                              <input
+                                type="checkbox"
+                                className="mt-0.5 h-4 w-4 accent-teal-600"
+                                checked={s.done}
+                                onChange={() => store.togglePdiStep(pdi.id, s.id)}
+                              />
+                              <span className={s.done ? 'font-medium text-teal-800' : 'text-slate-700'}>
+                                {s.label}
+                                {s.doneAt && <span className="block text-xs font-normal text-teal-600">Concluída em {formatDateTime(s.doneAt)}</span>}
+                              </span>
+                            </label>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      pdi.status !== 'concluido' && (
+                        <div className="mt-2 flex gap-2">
                           <button
                             type="button"
                             className="btn-secondary px-3 py-1.5 text-xs"
@@ -88,8 +179,8 @@ export default function Development({ user, store }: { user: User; store: HrStor
                             Concluir
                           </button>
                         </div>
-                      )}
-                    </div>
+                      )
+                    )}
                   </div>
                 </div>
               ))}
@@ -172,7 +263,7 @@ export default function Development({ user, store }: { user: User; store: HrStor
                 const from = data.users.find((u) => u.id === f.fromId)
                 const name = f.anonymous ? 'Anônimo' : (from?.name ?? 'Colega')
                 return (
-                  <li key={f.id} className="flex items-start gap-3 rounded-xl border border-slate-100 p-4">
+                  <li key={f.id} className={`flex items-start gap-3 rounded-xl border p-4 ${f.readAt ? 'border-slate-100' : 'border-amber-300 bg-amber-50/40'}`}>
                     <Avatar name={name} color={from?.avatarColor ?? '#94A3B8'} photoUrl={from?.photoDataUrl} userId={from?.id} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -183,6 +274,19 @@ export default function Development({ user, store }: { user: User; store: HrStor
                         <span className="text-xs text-slate-400">{formatDateTime(f.createdAt)}</span>
                       </div>
                       <p className="mt-1 text-sm leading-relaxed text-slate-600">{f.message}</p>
+                      {f.readAt ? (
+                        <p className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-teal-50 px-2.5 py-1 text-xs font-semibold text-teal-700">
+                          ✓ Leitura confirmada em {formatDateTime(f.readAt)}
+                        </p>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn-primary mt-2.5 px-3.5 py-2 text-xs"
+                          onClick={() => store.markFeedbackRead(f.id)}
+                        >
+                          Confirmar que li este feedback
+                        </button>
+                      )}
                     </div>
                   </li>
                 )
