@@ -11,6 +11,8 @@ import { countPdiNews, markAllPdisSeen } from '../lib/pdiNotifications'
 interface NavItem {
   to: string
   label: string
+  /** Rótulo abreviado para a barra inferior do mobile (cabe em ~7 itens). */
+  shortLabel?: string
   icon: string
 }
 
@@ -39,12 +41,12 @@ function navFor(role: Role): NavItem[] {
   if (role === 'gestor') {
     return [
       { to: '/painel', label: 'Painel', icon: iconPaths.painel },
-      { to: '/usuarios', label: 'Colaboradores', icon: iconPaths.usuarios },
+      { to: '/usuarios', label: 'Colaboradores', shortLabel: 'Equipe', icon: iconPaths.usuarios },
       { to: '/ferias', label: 'Férias', icon: iconPaths.ferias },
       { to: '/ponto', label: 'Ponto', icon: iconPaths.ponto },
       { to: '/folha', label: 'Folha', icon: iconPaths.folha },
-      { to: '/requisicoes', label: 'Requisições', icon: iconPaths.requisicoes },
-      { to: '/desenvolvimento-time', label: 'Desenvolvimento', icon: iconPaths.desenvolvimentoTime },
+      { to: '/requisicoes', label: 'Requisições', shortLabel: 'Requis.', icon: iconPaths.requisicoes },
+      { to: '/desenvolvimento-time', label: 'Desenvolvimento', shortLabel: 'Desenv.', icon: iconPaths.desenvolvimentoTime },
       { to: '/perfil', label: 'Perfil', icon: iconPaths.perfil },
     ]
   }
@@ -52,9 +54,9 @@ function navFor(role: Role): NavItem[] {
     { to: '/painel', label: 'Painel', icon: iconPaths.painel },
     { to: '/ponto', label: 'Ponto', icon: iconPaths.ponto },
     { to: '/ferias', label: 'Férias', icon: iconPaths.ferias },
-    { to: '/requisicoes', label: 'Requisições', icon: iconPaths.requisicoes },
-    { to: '/meus-holerites', label: 'Holerites', icon: iconPaths.folha },
-    { to: '/meu-desenvolvimento', label: 'Desenvolvimento', icon: iconPaths.desenvolvimento },
+    { to: '/requisicoes', label: 'Requisições', shortLabel: 'Requis.', icon: iconPaths.requisicoes },
+    { to: '/meus-holerites', label: 'Holerites', shortLabel: 'Holer.', icon: iconPaths.folha },
+    { to: '/meu-desenvolvimento', label: 'Desenvolvimento', shortLabel: 'Desenv.', icon: iconPaths.desenvolvimento },
     { to: '/perfil', label: 'Perfil', icon: iconPaths.perfil },
   ]
 }
@@ -200,7 +202,7 @@ export default function Layout({
               to={item.to}
               onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
               className={({ isActive }) =>
-                `relative flex min-w-[64px] flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
+                `relative flex min-w-0 flex-1 flex-col items-center gap-1 px-0.5 py-2.5 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-primary-600' : 'text-slate-500'
                 }`
               }
@@ -208,7 +210,7 @@ export default function Layout({
               <svg viewBox="0 0 24 24" style={{ width: 20, height: 20 }} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d={item.icon} />
               </svg>
-              {item.label}
+              <span className="w-full truncate text-center">{item.shortLabel ?? item.label}</span>
               {item.to === '/meu-desenvolvimento' && pdiNews > 0 && (
                 <span className="absolute right-2 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-bold text-white">
                   {pdiNews}
