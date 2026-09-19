@@ -370,6 +370,7 @@ export function useHrData() {
         jobTitle: patch.jobTitle,
         department: patch.department,
         baseSalary: patch.baseSalary,
+        admissionDate: patch.admissionDate,
         managerId: patch.managerId ?? null,
         cpf: patch.cpf,
         ctps: patch.ctps,

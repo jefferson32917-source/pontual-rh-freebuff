@@ -681,6 +681,8 @@ export interface AdminUpdateUserInput {
   jobTitle?: string
   department?: string
   baseSalary?: number
+  /** Data de admissão exata (YYYY-MM-DD) — base do cálculo proporcional de férias. */
+  admissionDate?: string
   managerId?: string | null
   cpf?: string
   ctps?: string
@@ -696,6 +698,8 @@ export interface AdminUpdateUserInput {
 
 export async function apiAdminUpdateUser(id: string, input: AdminUpdateUserInput): Promise<void> {
   const sb = getSupabase()
+  // p_admission_date só vai quando preenchido: bancos SEM a migration v11
+  // não têm a função com esse parâmetro e a chamada falharia inteira.
   const { error } = await sb.rpc('admin_update_user', {
     p_id: id,
     p_name: input.name ?? null,
@@ -704,6 +708,7 @@ export async function apiAdminUpdateUser(id: string, input: AdminUpdateUserInput
     p_job_title: input.jobTitle ?? null,
     p_department: input.department ?? null,
     p_base_salary: input.baseSalary ?? null,
+    ...(input.admissionDate != null ? { p_admission_date: input.admissionDate } : {}),
     p_manager_id: input.managerId ?? null,
     p_cpf: input.cpf ?? null,
     p_ctps: input.ctps ?? null,

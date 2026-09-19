@@ -33,6 +33,8 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
   const [fAddress, setFAddress] = useState('')
   const [fCep, setFCep] = useState('')
   const [fConfidential, setFConfidential] = useState('')
+  /** Data de admissão EXATA — base do cálculo proporcional de férias. */
+  const [fAdmission, setFAdmission] = useState('')
   /** Nova promção/ajuste de cargo: colaborador -> gestor (apenas SA). */
   const [fRole, setFRoleEdit] = useState<'gestor' | 'colaborador' | null>(null)
   /** Bate ponto? (default true; gestor costuma ficar de fora) */
@@ -77,6 +79,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
     setFName(''); setFEmail(''); setFPassword(''); setFJobTitle(''); setFDepartment('')
     setFBaseSalary(''); setFManagerId(''); setFormError(null)
     setFCpf(''); setFCtps(''); setFPhone(''); setFAddress(''); setFCep(''); setFConfidential('')
+    setFAdmission('')
   }
 
   function handleCreate(e: FormEvent) {
@@ -96,7 +99,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
       department: fDepartment,
       baseSalary: parseFloat(fBaseSalary.replace(',', '.')) || 0,
       password: fPassword,
-      admissionDate: new Date().toISOString().slice(0, 10),
+      admissionDate: fAdmission || new Date().toISOString().slice(0, 10),
       managerId: fRoleCreate === 'colaborador' && fManagerId ? fManagerId : undefined,
     })
     if (!result.ok) {
@@ -128,6 +131,7 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
     setFManagerId(u.managerId ?? '')
     setFPassword('')
     setFCpf(u.cpf ?? '')
+    setFAdmission(u.admissionDate?.slice(0, 10) ?? '')
     setFCtps(u.ctps ?? '')
     setFPhone(u.phone ?? '')
     setFAddress(u.address ?? '')
@@ -158,6 +162,11 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
       cep: fCep.trim().slice(0, 12),
       confidentialNotes: fConfidential.trim().slice(0, 500),
       requiresPunch: fRequiresPunch,
+    }
+    // Admissão só entra no patch quando ALTERADA: evita reescrever a data
+    // existente por acidente e evita enviar o parâmetro novo (v11) sem uso.
+    if (fAdmission && fAdmission !== editing.admissionDate?.slice(0, 10)) {
+      patch.admissionDate = fAdmission
     }
     // PROMOÇÃO: colaborador -> gestor (apenas SA, aplicada junto ao salvar)
     if (fRole !== null && editing.role === 'colaborador' && fRole === 'gestor') {
@@ -250,6 +259,12 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
             <div>
               <label htmlFor="nu-phone" className="mb-1.5 block text-sm font-medium text-slate-700">Telefone</label>
               <input id="nu-phone" type="tel" className="input" maxLength={20} value={fPhone} onChange={(e) => setFPhone(e.target.value)} placeholder="(11) 99999-0000" />
+            </div>
+            <div>
+              <label htmlFor="nu-admission" className="mb-1.5 block text-sm font-medium text-slate-700">
+                Data de admissão <span className="font-normal text-slate-400">(base exata das férias)</span>
+              </label>
+              <input id="nu-admission" type="date" className="input" value={fAdmission} onChange={(e) => setFAdmission(e.target.value)} />
             </div>
             <div>
               <label htmlFor="nu-cep" className="mb-1.5 block text-sm font-medium text-slate-700">CEP</label>
@@ -410,6 +425,13 @@ export default function UserAdmin({ user, store }: { user: User; store: HrStore 
                       <div className="sm:col-span-2">
                         <label className="mb-1 block text-xs font-medium text-slate-600" htmlFor={`ed-address-${u.id}`}>Endereço</label>
                         <input id={`ed-address-${u.id}`} className="input" maxLength={160} value={fAddress} onChange={(e) => setFAddress(e.target.value)} placeholder="Rua, número, complemento" />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-600" htmlFor={`ed-admission-${u.id}`}>
+                          Admissão <span className="font-normal text-slate-400">(base exata das férias)</span>
+                        </label>
+                        <input id={`ed-admission-${u.id}`} type="date" className="input" value={fAdmission} onChange={(e) => setFAdmission(e.target.value)} />
+                        <p className="mt-1 text-[11px] text-slate-400">Atual: {formatDate(editing?.admissionDate ?? '')} · altere para recalcular o saldo proporcional</p>
                       </div>
                       <div className="sm:col-span-2">
                         <label className="mb-1 block text-xs font-medium text-slate-600" htmlFor={`ed-conf-${u.id}`}>Dados confidenciais (visíveis apenas para a empresa)</label>
