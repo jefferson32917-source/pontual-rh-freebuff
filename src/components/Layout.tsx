@@ -53,6 +53,7 @@ function navFor(role: Role): NavItem[] {
     { to: '/ponto', label: 'Ponto', icon: iconPaths.ponto },
     { to: '/ferias', label: 'Férias', icon: iconPaths.ferias },
     { to: '/requisicoes', label: 'Requisições', icon: iconPaths.requisicoes },
+    { to: '/meus-holerites', label: 'Holerites', icon: iconPaths.folha },
     { to: '/meu-desenvolvimento', label: 'Desenvolvimento', icon: iconPaths.desenvolvimento },
     { to: '/perfil', label: 'Perfil', icon: iconPaths.perfil },
   ]
@@ -130,14 +131,14 @@ export default function Layout({
             <img src="/logo.svg" alt="Pontual RH Super" className="h-9 w-auto" />
           </NavLink>
 
-          <nav className="hidden max-w-[44vw] items-center gap-1 overflow-x-auto lg:flex" aria-label="Navegação principal">
+          <nav className="hidden items-center gap-1 lg:flex" aria-label="Navegação principal">
             {items.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
                 className={({ isActive }) =>
-                  `relative flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
+                  `relative flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition-colors ${
                     isActive
                       ? 'bg-primary-50 text-primary-700'
                       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
@@ -192,14 +193,14 @@ export default function Layout({
         className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-100 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden"
         aria-label="Navegação principal"
       >
-        <div className="no-scrollbar mx-auto flex max-w-xl items-stretch justify-start overflow-x-auto">
+        <div className="mx-auto flex max-w-xl items-stretch justify-start">
           {items.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               onClick={item.to === '/meu-desenvolvimento' ? markDevSeen : undefined}
               className={({ isActive }) =>
-                `relative flex w-20 min-w-[72px] shrink-0 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
+                `relative flex min-w-[64px] flex-1 flex-col items-center gap-1 px-1 py-2.5 text-[10px] font-medium transition-colors ${
                   isActive ? 'text-primary-600' : 'text-slate-500'
                 }`
               }

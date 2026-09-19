@@ -1341,7 +1341,9 @@ export async function apiSavePayroll(run: PayrollRun): Promise<string> {
     .limit(1)
   if (selErr) throw new Error(selErr.message)
   const maxVersion = (existing?.[0] as any)?.version ?? 0
-  const version = run.version > 0 ? run.version : maxVersion + 1
+  // A versão do BANDO manda: a calculada no cliente pode estar defasada
+  // (outra sessão publicou antes) e colidir com unique(user_id, reference, version).
+  const version = run.version > 0 && run.id.startsWith('local_') ? Math.max(run.version, maxVersion + 1) : run.version > 0 ? run.version : maxVersion + 1
 
   const row = {
     reference: run.reference,

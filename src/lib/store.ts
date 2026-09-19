@@ -1024,7 +1024,21 @@ export function useHrData() {
       ...d,
       payrolls: [withVersion, ...(archived ? [archived] : []), ...d.payrolls.filter((p) => p.id !== withVersion.id && p.id !== active?.id)],
     }))
-    void api.apiSavePayroll(withVersion).catch(() => void reload())
+    // FALHA VISÍVEL: se o INSERT falhar (RLS/rede), o gestor precisa SABER —
+    // antes o erro era engolido e a folha nunca chegava ao colaborador.
+    api
+      .apiSavePayroll(withVersion)
+      .then((realId) => {
+        setData((d) => ({ ...d, payrolls: d.payrolls.map((p) => (p.id === withVersion.id ? { ...p, id: realId } : p)) }))
+      })
+      .catch((e) => {
+        setData((d) => ({ ...d, payrolls: d.payrolls.filter((p) => p.id !== withVersion.id) }))
+        toast.error(
+          `FALHA AO PUBLICAR A FOLHA: ${e instanceof Error ? e.message : 'erro desconhecido'}. ` +
+            'Verifique se a migration v12 foi aplicada no Supabase.',
+        )
+        void reload()
+      })
     if (archived && !archived.id.startsWith('local_')) {
       void api.apiUpdatePayrollState(archived.id, { state: 'rascunho', supersededBy: withVersion.id }).catch(() => void reload())
     }
