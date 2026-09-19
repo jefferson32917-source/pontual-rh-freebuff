@@ -80,11 +80,14 @@ end;
 $$;
 
 -- Permissões de execução (reafirma as originais após o replace)
+-- Assinatura com 19 tipos: uuid + 5 text + numeric + date + uuid + 6 text
+-- + int + numeric + boolean + boolean (cpf, ctps, phone, address, cep e
+-- confidential são os 6 text finais — um text a menos aqui causava o 42883).
 revoke execute on function
-  public.admin_update_user(uuid,text,text,text,text,text,numeric,date,uuid,text,text,text,text,text,int,numeric,boolean,boolean)
+  public.admin_update_user(uuid,text,text,text,text,text,numeric,date,uuid,text,text,text,text,text,text,int,numeric,boolean,boolean)
 from anon;
 grant execute on function
-  public.admin_update_user(uuid,text,text,text,text,text,numeric,date,uuid,text,text,text,text,text,int,numeric,boolean,boolean)
+  public.admin_update_user(uuid,text,text,text,text,text,numeric,date,uuid,text,text,text,text,text,text,int,numeric,boolean,boolean)
 to authenticated;
 
 -- Nota: como adicionamos um parâmetro, o Postgres cria uma função NOVA e a
